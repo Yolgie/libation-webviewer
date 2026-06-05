@@ -111,7 +111,7 @@ impl Library {
     pub fn get_book_by_asin(&self, asin: &str) -> rusqlite::Result<Option<BookDetail>> {
         let mut stmt = self.conn.prepare(GET_BOOK_SQL)?;
         let detail = stmt
-            .query_row(params![asin], |row| map_detail_row(row))
+            .query_row(params![asin], map_detail_row)
             .optional()?;
         let Some(mut detail) = detail else {
             return Ok(None);
@@ -166,7 +166,11 @@ fn map_book_row(row: &Row<'_>) -> rusqlite::Result<BookView> {
         book_id: row.get(0)?,
         asin: row.get(1)?,
         title: row.get(2)?,
-        subtitle: if subtitle.is_empty() { None } else { Some(subtitle) },
+        subtitle: if subtitle.is_empty() {
+            None
+        } else {
+            Some(subtitle)
+        },
         length_minutes: row.get(4)?,
         locale: row.get(5)?,
         language: row.get(6)?,
@@ -190,7 +194,11 @@ fn map_detail_row(row: &Row<'_>) -> rusqlite::Result<BookDetail> {
             book_id: row.get(0)?,
             asin: row.get(1)?,
             title: row.get(2)?,
-            subtitle: if subtitle.is_empty() { None } else { Some(subtitle) },
+            subtitle: if subtitle.is_empty() {
+                None
+            } else {
+                Some(subtitle)
+            },
             length_minutes: row.get(4)?,
             locale: row.get(5)?,
             language: row.get(6)?,
@@ -200,7 +208,7 @@ fn map_detail_row(row: &Row<'_>) -> rusqlite::Result<BookDetail> {
             date_added: row.get(12)?,
             is_audible_plus: row.get::<_, i64>(13)? != 0,
             absent_from_last_scan: row.get::<_, i64>(14)? != 0,
-            authors: Vec::new(),   // populated by get_book_by_asin
+            authors: Vec::new(), // populated by get_book_by_asin
             narrators: Vec::new(),
         },
         description,

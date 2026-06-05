@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use libation_webviewer::cover::{extract, get_or_build, resize_to_webp, src_hash, CoverError, CoverFormat};
+use libation_webviewer::cover::{
+    extract, get_or_build, resize_to_webp, src_hash, CoverError, CoverFormat,
+};
 use tempfile::TempDir;
 
 fn fixture(name: &str) -> PathBuf {
@@ -13,7 +15,11 @@ fn fixture(name: &str) -> PathBuf {
 #[test]
 fn extract_m4b_returns_jpeg() {
     let (bytes, fmt) = extract(&fixture("tiny.m4b")).expect("m4b extract");
-    assert!(bytes.len() > 100, "expected non-trivial cover bytes ({} bytes)", bytes.len());
+    assert!(
+        bytes.len() > 100,
+        "expected non-trivial cover bytes ({} bytes)",
+        bytes.len()
+    );
     assert_eq!(&bytes[..2], &[0xff, 0xd8], "expected JPEG SOI");
     assert!(matches!(fmt, CoverFormat::Jpeg));
 }
@@ -34,8 +40,7 @@ fn extract_no_cover_returns_not_found() {
 
 #[test]
 fn extract_unsupported_extension_returns_parse_error() {
-    let err = extract(std::path::Path::new("/tmp/whatever.ogg"))
-        .expect_err("expected parse error");
+    let err = extract(std::path::Path::new("/tmp/whatever.ogg")).expect_err("expected parse error");
     assert!(matches!(err, CoverError::Parse(_)), "got {:?}", err);
 }
 
@@ -65,7 +70,11 @@ async fn get_or_build_thumb_writes_then_reads_cache() {
         .join("covers")
         .join("B08G9RZBTT")
         .join(format!("thumb-{}.webp", hash));
-    assert!(expected.exists(), "thumb cache file not written: {:?}", expected);
+    assert!(
+        expected.exists(),
+        "thumb cache file not written: {:?}",
+        expected
+    );
 
     // Second call must return identical bytes (from cache).
     let (bytes2, mime2) = get_or_build(cache.path(), "B08G9RZBTT", &source, true)

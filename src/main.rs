@@ -9,7 +9,9 @@ use tracing_subscriber::EnvFilter;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let addr: SocketAddr = std::env::var("LISTEN_ADDR")
@@ -22,7 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let books_dir: PathBuf = std::env::var("LIBATION_BOOKS")
         .map_err(|_| "LIBATION_BOOKS env var is required")?
         .into();
-    let cache_dir: PathBuf = std::env::var("CACHE_DIR").unwrap_or_else(|_| "/cache".into()).into();
+    let cache_dir: PathBuf = std::env::var("CACHE_DIR")
+        .unwrap_or_else(|_| "/cache".into())
+        .into();
 
     if !db_path.exists() {
         warn!(path = %db_path.display(), "LIBATION_DB does not point to an existing file; serving degraded UI");

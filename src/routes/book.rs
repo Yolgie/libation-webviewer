@@ -117,9 +117,10 @@ async fn download(
         error!(path = %source.display(), ?err, "failed to open audio file");
         (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
     })?;
-    let metadata = file.metadata().await.map_err(|err| {
-        (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-    })?;
+    let metadata = file
+        .metadata()
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     let filename = source
         .file_name()
@@ -274,10 +275,7 @@ fn render_files_list(asin: &str, files: &[std::path::PathBuf]) -> String {
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let name = p
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("(file)");
+            let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("(file)");
             format!(
                 r#"<li><a href="/books/{}/download/{}">{}</a></li>"#,
                 html_escape(asin),

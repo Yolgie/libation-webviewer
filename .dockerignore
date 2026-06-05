@@ -1,0 +1,35 @@
+# Cargo build output (rebuilt inside the image).
+target/
+
+# Local CI / coverage artifacts.
+lcov.info
+
+# Test fixtures (we don't run the test suite inside the image).
+tests/
+
+# Local docs and design notes.
+PLAN.md
+README.md
+
+# Compose / deployment recipes (consumed at runtime, not build time).
+compose/
+examples/
+.github/
+.git/
+
+# Sample personal data from planning sessions (also gitignored).
+LibationContext.db
+LibationContext.db-wal
+LibationContext.db-shm
+report.html
+*.metadata.json
+*.m4b
+*.mp3
+*.m4a
+
+# Editor / OS / dev-tool noise.
+*.swp
+.idea/
+.vscode/
+.DS_Store
+.claude/

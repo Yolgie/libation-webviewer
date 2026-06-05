@@ -3,6 +3,7 @@
 //! Dispatch by extension:
 //!   * `.m4b` / `.m4a` / `.mp4` -> mp4ameta reads the `covr` atom.
 //!   * `.mp3`                   -> id3 reads the first `APIC` frame.
+//!
 //! The cache lives under `<cache_dir>/covers/<asin>/`. Filenames are
 //! keyed on a short sha256 of (source mtime, source size) so the
 //! cache invalidates automatically when Libation re-downloads a book.
@@ -59,7 +60,10 @@ pub fn extract(path: &Path) -> Result<(Vec<u8>, CoverFormat), CoverError> {
     match ext.as_str() {
         "m4b" | "m4a" | "mp4" => extract_mp4(path),
         "mp3" => extract_mp3(path),
-        other => Err(CoverError::Parse(format!("unsupported extension: {}", other))),
+        other => Err(CoverError::Parse(format!(
+            "unsupported extension: {}",
+            other
+        ))),
     }
 }
 

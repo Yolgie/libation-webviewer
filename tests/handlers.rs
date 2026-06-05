@@ -39,14 +39,9 @@ fn build_state(cache_dir: &Path) -> AppState {
 
 async fn request(state: AppState, uri: &str) -> axum::http::Response<Body> {
     let app = routes::router(state);
-    app.oneshot(
-        Request::builder()
-            .uri(uri)
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await
-    .unwrap()
+    app.oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -93,7 +88,11 @@ async fn detail_returns_404_for_unknown_asin() {
 #[tokio::test]
 async fn files_fragment_lists_audio_files() {
     let tmp = tempfile::tempdir().unwrap();
-    let resp = request(build_state(tmp.path()), &format!("/books/{}/files", TEST_ASIN)).await;
+    let resp = request(
+        build_state(tmp.path()),
+        &format!("/books/{}/files", TEST_ASIN),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let html = std::str::from_utf8(&body).unwrap();
@@ -104,12 +103,24 @@ async fn files_fragment_lists_audio_files() {
 #[tokio::test]
 async fn download_streams_audio_with_attachment_disposition() {
     let tmp = tempfile::tempdir().unwrap();
-    let resp = request(build_state(tmp.path()), &format!("/books/{}/download/0", TEST_ASIN)).await;
+    let resp = request(
+        build_state(tmp.path()),
+        &format!("/books/{}/download/0", TEST_ASIN),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let headers = resp.headers().clone();
     assert_eq!(headers.get("content-type").unwrap(), "audio/mp4");
-    let cd = headers.get("content-disposition").unwrap().to_str().unwrap();
-    assert!(cd.contains("attachment"), "expected attachment disposition: {}", cd);
+    let cd = headers
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        cd.contains("attachment"),
+        "expected attachment disposition: {}",
+        cd
+    );
     assert!(cd.contains("tiny.m4b"));
 
     let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
@@ -120,7 +131,11 @@ async fn download_streams_audio_with_attachment_disposition() {
 #[tokio::test]
 async fn download_out_of_range_returns_404() {
     let tmp = tempfile::tempdir().unwrap();
-    let resp = request(build_state(tmp.path()), &format!("/books/{}/download/99", TEST_ASIN)).await;
+    let resp = request(
+        build_state(tmp.path()),
+        &format!("/books/{}/download/99", TEST_ASIN),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 

@@ -43,7 +43,10 @@ fn project_hail_mary_metadata_is_complete() {
         "expected Andy Weir among authors, got {:?}",
         phm.authors,
     );
-    assert!(!phm.narrators.is_empty(), "expected at least one narrator for PHM");
+    assert!(
+        !phm.narrators.is_empty(),
+        "expected at least one narrator for PHM"
+    );
 }
 
 #[test]
@@ -80,9 +83,7 @@ fn get_book_by_asin_returns_full_detail_for_phm() {
 
 #[test]
 fn get_book_by_asin_returns_none_for_unknown() {
-    let detail = open()
-        .get_book_by_asin("NEVERHEARD")
-        .expect("query ok");
+    let detail = open().get_book_by_asin("NEVERHEARD").expect("query ok");
     assert!(detail.is_none());
 }
 

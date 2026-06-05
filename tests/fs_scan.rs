@@ -44,7 +44,12 @@ fn scan_books_skips_folders_without_asin_token() {
     touch(&no_asin, "anything.m4b");
 
     let scan = scan_books(tmp.path());
-    assert_eq!(scan.len(), 1, "scan = {:?}", scan.keys().collect::<Vec<_>>());
+    assert_eq!(
+        scan.len(),
+        1,
+        "scan = {:?}",
+        scan.keys().collect::<Vec<_>>()
+    );
     assert!(scan.contains_key("B08G9RZBTT"));
 }
 

@@ -57,7 +57,14 @@ pub fn scan_books(root: impl AsRef<Path>) -> HashMap<String, BookFiles> {
             continue;
         };
         let (audio_files, metadata_json) = scan_book_dir(&path);
-        out.insert(asin, BookFiles { folder: path, audio_files, metadata_json });
+        out.insert(
+            asin,
+            BookFiles {
+                folder: path,
+                audio_files,
+                metadata_json,
+            },
+        );
     }
     out
 }
