@@ -7,7 +7,8 @@ RUN rustup target add x86_64-unknown-linux-musl \
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
-# Add COPY templates/ assets/ once those dirs hold real files.
+COPY assets/ assets/
+COPY templates/ templates/
 RUN cargo build --release --target x86_64-unknown-linux-musl --bin libation-webviewer
 
 # ---- runtime ----
