@@ -64,6 +64,11 @@ just run            # local cargo run
 just image          # multi-arch docker build
 ```
 
+## Changelog
+
+See [`CHANGELOG.md`](./CHANGELOG.md). The `Unreleased` section is updated
+in the same commit as each change.
+
 ## Licence
 
 MIT. See [`LICENSE`](./LICENSE).
