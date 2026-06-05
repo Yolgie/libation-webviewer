@@ -18,7 +18,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "compression-br", "set-header"] }
 
 # Templates
-askama = "0.13"
+askama = "0.16"
 
 # Static assets embedded into the binary
 rust-embed = { version = "8", features = ["mime-guess"] }
