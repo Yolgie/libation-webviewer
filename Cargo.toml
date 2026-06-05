@@ -58,7 +58,7 @@ time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"
-reqwest = { version = "0.12", features = ["json"], default-features = false, optional = false }
+reqwest = { version = "0.13", features = ["json"], default-features = false, optional = false }
 insta = "1"
 tower = { version = "0.5", features = ["util"] }   # ServiceExt::oneshot for handler tests
 
