@@ -114,6 +114,43 @@ impl Library {
         Ok(Self { conn })
     }
 
+    /// Open Libation's SQLite DB read-write. Used only inside the admin
+    /// requeue path. Held briefly: each `requeue_book` call opens,
+    /// commits, and drops the handle.
+    pub fn open_rw(path: impl AsRef<Path>) -> rusqlite::Result<Self> {
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        Ok(Self { conn })
+    }
+
+    /// Look up an ASIN's BookId without loading the full BookDetail.
+    pub fn book_id_for_asin(&self, asin: &str) -> rusqlite::Result<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT BookId FROM Books WHERE AudibleProductId = ?1",
+                params![asin],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()
+    }
+
+    /// The admin write. Sets `BookStatus = 0` so Libation re-downloads
+    /// the book on its next scan. Returns the number of rows changed
+    /// (0 = no UserDefinedItem row for that BookId).
+    ///
+    /// No optimistic-concurrency precondition (per PLAN.md v1): in
+    /// normal operation Libation runs nightly while the viewer is used
+    /// interactively during the day, so the write windows don't overlap.
+    pub fn requeue_book(&mut self, book_id: i64) -> rusqlite::Result<usize> {
+        let tx = self.conn.transaction()?;
+        let changed = tx.execute(
+            "UPDATE UserDefinedItem SET BookStatus = 0 WHERE BookId = ?1",
+            params![book_id],
+        )?;
+        tx.commit()?;
+        Ok(changed)
+    }
+
     /// The latest `MigrationId` in `__EFMigrationsHistory`, or `None`
     /// if the table is missing or empty.
     pub fn latest_migration(&self) -> Option<String> {

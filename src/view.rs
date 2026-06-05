@@ -1,4 +1,47 @@
+use axum::http::HeaderMap;
 use serde::Serialize;
+
+use crate::state::AppState;
+
+/// View-side rollup of "what should the page show about admin mode?".
+/// Built per-request from `AppState` + the request headers.
+#[derive(Debug, Clone, Copy)]
+pub struct AdminContext {
+    pub enabled: bool,
+    pub logged_in: bool,
+    pub writes_allowed: bool,
+    pub requires_password: bool,
+}
+
+impl AdminContext {
+    pub fn from_state(state: &AppState, headers: &HeaderMap) -> Self {
+        Self {
+            enabled: state.enable_admin,
+            logged_in: state.auth.is_authenticated(headers),
+            writes_allowed: state.admin_writes_allowed,
+            requires_password: state.auth.requires_password(),
+        }
+    }
+
+    pub fn show_requeue_button(&self) -> bool {
+        self.enabled && self.logged_in && self.writes_allowed
+    }
+
+    pub fn show_login_link(&self) -> bool {
+        self.enabled && self.requires_password && !self.logged_in
+    }
+
+    pub fn show_logout_link(&self) -> bool {
+        self.enabled && self.requires_password && self.logged_in
+    }
+
+    /// Show the "schema unknown, admin writes disabled" banner when
+    /// admin mode is on but the schema-drift guard refused to allow
+    /// writes.
+    pub fn show_schema_warning(&self) -> bool {
+        self.enabled && !self.writes_allowed
+    }
+}
 
 /// Compact summary used in the library list.
 #[derive(Debug, Clone, Serialize)]

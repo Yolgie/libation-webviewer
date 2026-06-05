@@ -138,3 +138,74 @@ footer {
     margin-left: 0.4em;
     padding: 0.2em 0.4em;
 }
+
+.admin-nav {
+    float: right;
+    margin-top: 0.5em;
+}
+
+.link-button {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #06c;
+    cursor: pointer;
+    font: inherit;
+}
+
+.link-button:hover {
+    text-decoration: underline;
+}
+
+.schema-warn {
+    display: block;
+    margin: 1em 0;
+}
+
+.requeue-form {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    margin-top: 1em;
+}
+
+.requeue-form button {
+    padding: 0.4em 0.8em;
+    background: #06c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.requeue-form button:hover {
+    background: #045;
+}
+
+.admin-form label {
+    display: block;
+    margin: 1em 0 0.5em;
+}
+
+.admin-form input[type="password"] {
+    width: 100%;
+    max-width: 24em;
+    padding: 0.4em 0.6em;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.admin-form button {
+    margin-top: 1em;
+    padding: 0.4em 1.2em;
+    background: #06c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.requeue-result .requeue-ok {
+    color: #0a0;
+}
+

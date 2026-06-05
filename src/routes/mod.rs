@@ -9,11 +9,15 @@ use axum::Router;
 use crate::state::AppState;
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let mut router = Router::new()
         .merge(health::routes())
         .merge(library::routes())
         .merge(book::routes())
-        .merge(admin::routes())
-        .merge(static_route::routes())
-        .with_state(state)
+        .merge(static_route::routes());
+    // The admin routes are absent entirely (not just 403) when admin
+    // mode is off, per PLAN.md.
+    if state.enable_admin {
+        router = router.merge(admin::routes());
+    }
+    router.with_state(state)
 }

@@ -1,0 +1,29 @@
+{% extends "_layout.html" %}
+
+{% block title %}Admin login &middot; libation-webviewer{% endblock %}
+
+{% block body %}
+<nav><a href="/">&larr; library</a></nav>
+<h1>Admin login</h1>
+
+{% if !requires_password %}
+<p class="muted">
+    No <code>ADMIN_PASSWORD</code> is set. The admin surface is open on
+    this deployment — any request can use the admin actions.
+</p>
+{% endif %}
+
+{% match error %}
+{% when Some with (msg) %}
+<p class="badge">{{ msg }}</p>
+{% when None %}
+{% endmatch %}
+
+<form method="post" action="/admin/login" class="admin-form">
+    <label>
+        Password
+        <input type="password" name="password" autofocus required>
+    </label>
+    <button type="submit">Log in</button>
+</form>
+{% endblock %}

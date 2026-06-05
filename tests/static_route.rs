@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use libation_webviewer::{routes, state::AppState};
+use libation_webviewer::{auth::AuthBackend, routes, state::AppState};
 use tower::ServiceExt;
 
 fn fixture(name: &str) -> PathBuf {
@@ -17,10 +17,13 @@ fn fixture(name: &str) -> PathBuf {
 fn build_state(cache_dir: &Path) -> AppState {
     AppState {
         db_path: fixture("sample.db"),
+        db_path_rw: None,
         books_dir: fixture("."),
         cache_dir: cache_dir.to_path_buf(),
         scan: Arc::new(HashMap::new()),
         admin_writes_allowed: true,
+        enable_admin: false,
+        auth: Arc::new(AuthBackend::new(None)),
     }
 }
 

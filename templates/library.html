@@ -3,6 +3,24 @@
 {% block title %}Library &middot; libation-webviewer{% endblock %}
 
 {% block body %}
+{% if admin.show_login_link() %}
+<nav class="admin-nav"><a href="/admin/login">Admin login</a></nav>
+{% endif %}
+{% if admin.show_logout_link() %}
+<nav class="admin-nav">
+    <form method="post" action="/admin/logout" class="logout-form">
+        <button type="submit" class="link-button">Admin logout</button>
+    </form>
+</nav>
+{% endif %}
+{% if admin.show_schema_warning() %}
+<p class="badge schema-warn">
+    Admin writes are disabled: the DB's schema head is not in the
+    known-good list shipped with this build. Set
+    <code>ALLOW_UNKNOWN_SCHEMA=1</code> on the container to override.
+</p>
+{% endif %}
+
 <h1>Library <span class="muted">{{ books.len() }} books</span></h1>
 
 <form class="filter-bar"

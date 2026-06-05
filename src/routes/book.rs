@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
     Router,
@@ -17,7 +17,7 @@ use crate::db;
 use crate::html;
 use crate::routes::library::status_label;
 use crate::state::AppState;
-use crate::view::BookDetail;
+use crate::view::{AdminContext, BookDetail};
 
 const PLACEHOLDER_SVG: &[u8] = include_bytes!("../../assets/placeholder.svg");
 
@@ -69,7 +69,12 @@ fn placeholder() -> Response {
         .into_response()
 }
 
-async fn detail(State(state): State<AppState>, Path(asin): Path<String>) -> Response {
+async fn detail(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(asin): Path<String>,
+) -> Response {
+    let admin = AdminContext::from_state(&state, &headers);
     let detail = match load_detail(&state, &asin) {
         Ok(Some(d)) => d,
         Ok(None) => return not_found(&asin),
@@ -105,6 +110,7 @@ async fn detail(State(state): State<AppState>, Path(asin): Path<String>) -> Resp
         files_missing,
         description_paragraphs: &description_paragraphs,
         cleaned_description,
+        admin,
     })
 }
 
@@ -216,6 +222,7 @@ struct BookTemplate<'a> {
     files_missing: bool,
     description_paragraphs: &'a [String],
     cleaned_description: String,
+    admin: AdminContext,
 }
 
 #[derive(Template)]

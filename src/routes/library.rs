@@ -3,7 +3,7 @@ use std::path::Path;
 use askama::Template;
 use axum::{
     extract::{Query, State},
-    http::{HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
     Router,
@@ -13,7 +13,7 @@ use tracing::error;
 use crate::db;
 use crate::query::{apply, LibraryQuery};
 use crate::state::AppState;
-use crate::view::BookView;
+use crate::view::{AdminContext, BookView};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -21,11 +21,17 @@ pub fn routes() -> Router<AppState> {
         .route("/partial/library", get(library_rows))
 }
 
-async fn library_list(State(state): State<AppState>, Query(q): Query<LibraryQuery>) -> Response {
+async fn library_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<LibraryQuery>,
+) -> Response {
+    let admin = AdminContext::from_state(&state, &headers);
     match load_filtered(&state.db_path, &q) {
         Ok(books) => render_template(LibraryTemplate {
             books: &books,
             q: &q,
+            admin,
         }),
         Err(err) => {
             error!(?err, "DB unavailable; serving degraded library page");
@@ -74,6 +80,7 @@ fn render_template<T: Template>(t: T) -> Response {
 pub struct LibraryTemplate<'a> {
     pub books: &'a [BookView],
     pub q: &'a LibraryQuery,
+    pub admin: AdminContext,
 }
 
 #[derive(Template)]

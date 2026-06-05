@@ -1,0 +1,8 @@
+<div class="requeue-result">
+{% match error %}
+{% when Some with (msg) %}
+<p class="badge requeue-error">{{ msg }}</p>
+{% when None %}
+<p class="requeue-ok">Queued <code>{{ asin }}</code> for re-download. Libation will pick it up on its next scan.</p>
+{% endmatch %}
+</div>

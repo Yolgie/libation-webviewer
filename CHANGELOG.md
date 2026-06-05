@@ -8,6 +8,57 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ## [Unreleased]
 
+### Added (admin write path slice)
+
+- **Admin login, logout, and `POST /books/{asin}/requeue`.** Behind
+  the `ENABLE_ADMIN` flag, the viewer now mounts:
+  - `GET /admin/login` — renders the password form.
+  - `POST /admin/login` — constant-time password compare (subtle),
+    issues a random 256-bit session token stored in an in-memory
+    `HashMap`, sets `lwv_session=<token>; HttpOnly; SameSite=Strict;
+    Path=/; Max-Age=86400`, redirects to `/`.
+  - `POST /admin/logout` — invalidates the token, clears the cookie,
+    redirects to `/`.
+  - `POST /books/{asin}/requeue` — writes `BookStatus = 0` in
+    `UserDefinedItem` via the second (writable) DB mount, so
+    Libation re-downloads the book on its next scan. Auth-gated,
+    schema-gated, and gated on `LIBATION_DB_RW` being set.
+- **New env vars driving the slice:**
+  - `ENABLE_ADMIN=1` mounts the admin routes (otherwise they're
+    absent from the router entirely, not 403).
+  - `ADMIN_PASSWORD=<plaintext>` requires a login; unset = anonymous
+    admin (startup logs WARN).
+  - `LIBATION_DB_RW=<path>` is the second mount of the Libation DB
+    (Dockerfile/compose templates already set this up).
+- **`AdminContext`** in `view::` rolls up `{enabled, logged_in,
+  writes_allowed, requires_password}` per request. Library + book
+  templates use it to render the login/logout link, a "schema head
+  unknown - admin writes disabled" banner, and the requeue button.
+- New `src/auth.rs` (`AuthBackend`, `make_set_cookie`,
+  `make_clear_cookie`, `extract_session_token`).
+- New `src/routes/admin.rs` with three handlers + two templates
+  (`admin_login.html`, `requeue_result.html`).
+- New `db::Library::open_rw` + `book_id_for_asin` + `requeue_book`
+  (`BEGIN IMMEDIATE; UPDATE UserDefinedItem SET BookStatus = 0
+  WHERE BookId = ?1; COMMIT`).
+- `AppState` grows `db_path_rw`, `enable_admin`, and a shared
+  `Arc<AuthBackend>`.
+- 31 new tests bringing the suite to 96 passing:
+  - 11 `src/auth.rs` unit tests cover anonymous mode, empty
+    password, constant-time verify, token issue/verify/invalidate,
+    expiry/eviction, header parsing, and the cookie attributes.
+  - 19 `tests/admin.rs` integration tests cover: admin routes
+    return 404 when disabled, the login form, login submit with
+    right/wrong password, logout clears the cookie, requeue
+    without auth → 401, requeue when writes disabled or
+    `LIBATION_DB_RW` unset → 503, requeue unknown ASIN → 404,
+    anonymous-mode requeue flips `BookStatus` to 0, requeue with
+    a valid cookie writes through, requeue only touches the
+    `BookStatus` column (`IsFinished`, `Tags`, `LastDownloaded`
+    are untouched), library shows the login link / logout / schema
+    banner appropriately, detail shows/hides the requeue button
+    based on auth state.
+
 ### Added (schema-drift guard slice)
 
 - **Schema-drift guard at startup.** `db::Library::check_schema`

@@ -39,6 +39,23 @@
             {{ self::status_label(detail.view.book_status) }}
         </p>
 
+        {% if admin.show_requeue_button() %}
+        <form class="requeue-form"
+              hx-post="/books/{{ detail.view.asin }}/requeue"
+              hx-target="#requeue-status"
+              hx-swap="innerHTML">
+            <button type="submit">Re-queue for download</button>
+            <span class="muted">flips <code>BookStatus</code> to 0 so Libation re-downloads on its next scan</span>
+        </form>
+        <div id="requeue-status"></div>
+        {% endif %}
+        {% if admin.show_schema_warning() %}
+        <p class="badge schema-warn">
+            Admin writes disabled (schema head not in the known-good list).
+            Set <code>ALLOW_UNKNOWN_SCHEMA=1</code> on the container to override.
+        </p>
+        {% endif %}
+
         <h2>Files</h2>
         {% if files.is_empty() %}
         <p class="muted">No audio files found on disk for this book.</p>

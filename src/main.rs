@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use libation_webviewer::{
+    auth::AuthBackend,
     db::{self, SchemaStatus},
     fs::scan_books,
     routes,
@@ -41,17 +42,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     std::fs::create_dir_all(&cache_dir)?;
 
+    let enable_admin = env_truthy("ENABLE_ADMIN");
+    let admin_password = std::env::var("ADMIN_PASSWORD")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let db_path_rw: Option<PathBuf> = std::env::var("LIBATION_DB_RW")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from);
     let admin_writes_allowed = compute_admin_writes_allowed(&db_path);
+
+    if enable_admin {
+        match (admin_password.as_ref(), db_path_rw.as_ref()) {
+            (None, _) => warn!(
+                "ENABLE_ADMIN=true but ADMIN_PASSWORD is unset - the admin surface is open to any request that reaches it"
+            ),
+            (Some(_), None) => info!(
+                "ENABLE_ADMIN=true with ADMIN_PASSWORD set; LIBATION_DB_RW is unset so admin writes will return 503"
+            ),
+            (Some(_), Some(p)) => {
+                info!(path = %p.display(), "ENABLE_ADMIN=true; admin writes available via the RW DB handle")
+            }
+        }
+    } else {
+        info!("ENABLE_ADMIN unset; admin surface is not mounted");
+    }
+
+    let auth = Arc::new(AuthBackend::new(admin_password));
 
     let scan = scan_books(&books_dir);
     info!(count = scan.len(), books_dir = %books_dir.display(), "scanned books directory");
 
     let state = AppState {
         db_path,
+        db_path_rw,
         books_dir,
         cache_dir,
         scan: Arc::new(scan),
         admin_writes_allowed,
+        enable_admin,
+        auth,
     };
     let app = routes::router(state);
 
@@ -62,12 +92,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn env_truthy(name: &str) -> bool {
+    matches!(
+        std::env::var(name)
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 /// Decide whether the admin write path should be available, given the
 /// DB's schema head and the `ALLOW_UNKNOWN_SCHEMA` env override.
 fn compute_admin_writes_allowed(db_path: &Path) -> bool {
-    let override_set = std::env::var("ALLOW_UNKNOWN_SCHEMA")
-        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "True"))
-        .unwrap_or(false);
+    let override_set = env_truthy("ALLOW_UNKNOWN_SCHEMA");
 
     let check = db::Library::open_ro(db_path).map(|lib| lib.check_schema());
     match (override_set, check) {
