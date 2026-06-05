@@ -110,9 +110,7 @@ impl Library {
     /// Look up the full detail record for a single ASIN.
     pub fn get_book_by_asin(&self, asin: &str) -> rusqlite::Result<Option<BookDetail>> {
         let mut stmt = self.conn.prepare(GET_BOOK_SQL)?;
-        let detail = stmt
-            .query_row(params![asin], map_detail_row)
-            .optional()?;
+        let detail = stmt.query_row(params![asin], map_detail_row).optional()?;
         let Some(mut detail) = detail else {
             return Ok(None);
         };
