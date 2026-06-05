@@ -183,6 +183,118 @@ async fn detail_page_strips_html_from_description() {
 }
 
 #[tokio::test]
+async fn library_search_filters_to_matches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/?q=Project+Hail+Mary").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("Project Hail Mary"));
+    // Other unrelated books should NOT be in the filtered list. Use Dune
+    // (also in the sample DB but unrelated to PHM) as the negative case.
+    assert!(
+        !html.contains("Frank Herbert"),
+        "search filter leaked an unrelated book into the result set"
+    );
+}
+
+#[tokio::test]
+async fn library_status_filter_not_downloaded_is_empty_on_sample() {
+    // Every book in sample.db has BookStatus=1 (downloaded).
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/?status=not_downloaded").await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(
+        html.contains("No books match"),
+        "expected empty-state message"
+    );
+    // PHM specifically should be filtered out.
+    assert!(!html.contains("Project Hail Mary"));
+}
+
+#[tokio::test]
+async fn library_sort_length_descending() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/?sort=length").await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    // The longest book in sample.db is "Super Powereds: Year 4" (3637 min).
+    // It should appear before shorter books.
+    let phm_pos = html.find("Project Hail Mary");
+    let yr4_pos = html.find("Super Powereds: Year 4");
+    assert!(yr4_pos.is_some() && phm_pos.is_some());
+    assert!(
+        yr4_pos.unwrap() < phm_pos.unwrap(),
+        "expected longer book (Year 4 = 3637 min) before shorter (PHM = 970 min)"
+    );
+}
+
+#[tokio::test]
+async fn partial_library_returns_rows_only_no_layout() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/partial/library").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    // Just rows; no doctype, no <html>, no <head>.
+    assert!(!html.contains("<!doctype"));
+    assert!(!html.contains("<html"));
+    assert!(html.contains(r#"<tbody id="library-rows">"#));
+    // Real books should be present.
+    assert!(html.contains("Project Hail Mary"));
+}
+
+#[tokio::test]
+async fn partial_library_sets_hx_push_url_for_active_filters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(
+        build_state(tmp.path()),
+        "/partial/library?q=Project&sort=length",
+    )
+    .await;
+    let hx = resp
+        .headers()
+        .get("HX-Push-Url")
+        .expect("HX-Push-Url header missing")
+        .to_str()
+        .unwrap();
+    assert!(hx.starts_with("/?"), "unexpected push URL: {hx}");
+    assert!(hx.contains("q=Project"));
+    assert!(hx.contains("sort=length"));
+}
+
+#[tokio::test]
+async fn library_renders_filter_form() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/").await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains(r#"hx-get="/partial/library""#));
+    assert!(html.contains(r#"name="q""#));
+    assert!(html.contains(r#"name="sort""#));
+    assert!(html.contains(r#"name="status""#));
+}
+
+#[tokio::test]
+async fn library_preserves_query_in_filter_form() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(
+        build_state(tmp.path()),
+        "/?q=Andy+Weir&sort=length&status=downloaded",
+    )
+    .await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains(r#"value="Andy Weir""#));
+    // The selected attribute should land on the chosen options.
+    assert!(
+        html.contains(r#"<option value="length"     selected>Length</option>"#)
+            || html.contains(r#"<option value="length" selected>Length</option>"#)
+    );
+}
+
+#[tokio::test]
 async fn pages_include_htmx_and_stylesheet() {
     let tmp = tempfile::tempdir().unwrap();
     let resp = request(build_state(tmp.path()), "/").await;

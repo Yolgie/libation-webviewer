@@ -8,6 +8,33 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ## [Unreleased]
 
+### Added (sort/filter slice)
+
+- **Library list query params** + HTMX partial-swap. `GET /` accepts
+  `?q=<text>&sort=<key>&status=<state>` to filter the rendered list.
+  Recognised sort keys: `title` (default, case-insensitive),
+  `author`, `length` (descending), `date_added` (descending).
+  Recognised statuses: `all` (default), `downloaded`,
+  `not_downloaded`.
+- New `GET /partial/library` route returns just the `<tbody>` block
+  with the filtered rows. The library page's filter form binds to it
+  via `hx-get` + `hx-target="#library-rows"` so the table updates as
+  you type / pick options without reloading the page.
+- `HX-Push-Url` response header on `/partial/library` keeps the
+  address bar in sync with active filters (so `Ctrl+R` lands on the
+  same view).
+- `src/query.rs` (new) holds `LibraryQuery`, `apply`, and
+  `url_querystring`. 10 unit tests cover default + custom sorts,
+  case-insensitivity, search across title / subtitle / author /
+  narrator, status filtering, the active-filters detector, and the
+  URL round-trip.
+- 7 new integration tests in `tests/handlers.rs`: search filters
+  to the matching row, status filter returns the empty-state copy,
+  length-sort puts the long Super Powereds book ahead of PHM,
+  the partial route returns rows-only (no layout), the partial
+  sets `HX-Push-Url` with active filters, the full page renders
+  the filter form, and the form preserves the active query.
+
 ### Added
 
 - Approved design doc in [`PLAN.md`](./PLAN.md) covering scope, architecture,

@@ -1,0 +1,25 @@
+<tbody id="library-rows">
+{% for b in books %}
+<tr>
+    <td>
+        <a href="/books/{{ b.asin }}">
+            <img src="/books/{{ b.asin }}/thumb" loading="lazy" width="60" height="60" alt="" class="thumb">
+        </a>
+    </td>
+    <td>
+        <a href="/books/{{ b.asin }}">{{ b.title }}</a>
+        {% match b.subtitle %}
+        {% when Some with (s) %}<br><span class="muted">{{ s }}</span>
+        {% when None %}
+        {% endmatch %}
+    </td>
+    <td>{{ b.authors|join(", ") }}</td>
+    <td>{{ b.narrators|join(", ") }}</td>
+    <td>{{ b.length_minutes }} min</td>
+    <td>{{ self::status_label(b.book_status) }}</td>
+</tr>
+{% endfor %}
+{% if books.is_empty() %}
+<tr><td colspan="6" class="muted">No books match the current filters.</td></tr>
+{% endif %}
+</tbody>

@@ -2,8 +2,8 @@ use std::path::Path;
 
 use askama::Template;
 use axum::{
-    extract::State,
-    http::StatusCode,
+    extract::{Query, State},
+    http::{HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
     Router,
@@ -11,16 +11,22 @@ use axum::{
 use tracing::error;
 
 use crate::db;
+use crate::query::{apply, LibraryQuery};
 use crate::state::AppState;
 use crate::view::BookView;
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/", get(library_list))
+    Router::new()
+        .route("/", get(library_list))
+        .route("/partial/library", get(library_rows))
 }
 
-async fn library_list(State(state): State<AppState>) -> Response {
-    match load_books(&state.db_path) {
-        Ok(books) => render_template(LibraryTemplate { books: &books }),
+async fn library_list(State(state): State<AppState>, Query(q): Query<LibraryQuery>) -> Response {
+    match load_filtered(&state.db_path, &q) {
+        Ok(books) => render_template(LibraryTemplate {
+            books: &books,
+            q: &q,
+        }),
         Err(err) => {
             error!(?err, "DB unavailable; serving degraded library page");
             render_template(ErrorDbTemplate {
@@ -30,8 +36,27 @@ async fn library_list(State(state): State<AppState>) -> Response {
     }
 }
 
-fn load_books(path: &Path) -> rusqlite::Result<Vec<BookView>> {
-    db::Library::open_ro(path)?.list_books()
+async fn library_rows(State(state): State<AppState>, Query(q): Query<LibraryQuery>) -> Response {
+    match load_filtered(&state.db_path, &q) {
+        Ok(books) => {
+            let mut resp = render_template(LibraryRowsTemplate { books: &books });
+            // Update the browser address bar so a refresh lands the user
+            // back on the same filtered view.
+            if let Ok(val) = HeaderValue::from_str(&q.url_querystring()) {
+                resp.headers_mut().insert("HX-Push-Url", val);
+            }
+            resp
+        }
+        Err(err) => {
+            error!(?err, "DB unavailable in partial route");
+            render_template(LibraryRowsTemplate { books: &[] })
+        }
+    }
+}
+
+fn load_filtered(path: &Path, q: &LibraryQuery) -> rusqlite::Result<Vec<BookView>> {
+    let books = db::Library::open_ro(path)?.list_books()?;
+    Ok(apply(books, q))
 }
 
 fn render_template<T: Template>(t: T) -> Response {
@@ -47,6 +72,13 @@ fn render_template<T: Template>(t: T) -> Response {
 #[derive(Template)]
 #[template(path = "library.html")]
 pub struct LibraryTemplate<'a> {
+    pub books: &'a [BookView],
+    pub q: &'a LibraryQuery,
+}
+
+#[derive(Template)]
+#[template(path = "library_rows.html")]
+pub struct LibraryRowsTemplate<'a> {
     pub books: &'a [BookView],
 }
 

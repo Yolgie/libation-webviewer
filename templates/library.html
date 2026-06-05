@@ -4,6 +4,39 @@
 
 {% block body %}
 <h1>Library <span class="muted">{{ books.len() }} books</span></h1>
+
+<form class="filter-bar"
+      hx-get="/partial/library"
+      hx-target="#library-rows"
+      hx-swap="outerHTML"
+      hx-trigger="keyup changed delay:300ms from:input[name='q'], change">
+    <input type="search" name="q" placeholder="search title / author / narrator"
+           value="{{ q.q }}" autocomplete="off">
+
+    <label>
+        Sort
+        <select name="sort">
+            <option value="title"      {% if q.sort == "title"      || q.sort.is_empty() %}selected{% endif %}>Title</option>
+            <option value="author"     {% if q.sort == "author"     %}selected{% endif %}>Author</option>
+            <option value="length"     {% if q.sort == "length"     %}selected{% endif %}>Length</option>
+            <option value="date_added" {% if q.sort == "date_added" %}selected{% endif %}>Date added</option>
+        </select>
+    </label>
+
+    <label>
+        Status
+        <select name="status">
+            <option value="all"            {% if q.status == "all"            || q.status.is_empty() %}selected{% endif %}>All</option>
+            <option value="downloaded"     {% if q.status == "downloaded"     %}selected{% endif %}>Downloaded</option>
+            <option value="not_downloaded" {% if q.status == "not_downloaded" %}selected{% endif %}>Not downloaded</option>
+        </select>
+    </label>
+
+    <noscript>
+        <button type="submit">Apply</button>
+    </noscript>
+</form>
+
 <table>
 <thead>
 <tr>
@@ -15,27 +48,6 @@
     <th>Status</th>
 </tr>
 </thead>
-<tbody id="library-rows">
-{% for b in books %}
-<tr>
-    <td>
-        <a href="/books/{{ b.asin }}">
-            <img src="/books/{{ b.asin }}/thumb" loading="lazy" width="60" height="60" alt="" class="thumb">
-        </a>
-    </td>
-    <td>
-        <a href="/books/{{ b.asin }}">{{ b.title }}</a>
-        {% match b.subtitle %}
-        {% when Some with (s) %}<br><span class="muted">{{ s }}</span>
-        {% when None %}
-        {% endmatch %}
-    </td>
-    <td>{{ b.authors|join(", ") }}</td>
-    <td>{{ b.narrators|join(", ") }}</td>
-    <td>{{ b.length_minutes }} min</td>
-    <td>{{ self::status_label(b.book_status) }}</td>
-</tr>
-{% endfor %}
-</tbody>
+{% include "library_rows.html" %}
 </table>
 {% endblock %}

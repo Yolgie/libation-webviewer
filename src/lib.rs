@@ -3,6 +3,7 @@ pub mod cover;
 pub mod db;
 pub mod fs;
 pub mod html;
+pub mod query;
 pub mod routes;
 pub mod state;
 pub mod static_assets;
