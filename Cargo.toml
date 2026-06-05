@@ -51,7 +51,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Misc
 bytes = "1"
 regex = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 
