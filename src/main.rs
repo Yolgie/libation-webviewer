@@ -1,8 +1,13 @@
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use libation_webviewer::{fs::scan_books, routes, state::AppState};
+use libation_webviewer::{
+    db::{self, SchemaStatus},
+    fs::scan_books,
+    routes,
+    state::AppState,
+};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -36,6 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     std::fs::create_dir_all(&cache_dir)?;
 
+    let admin_writes_allowed = compute_admin_writes_allowed(&db_path);
+
     let scan = scan_books(&books_dir);
     info!(count = scan.len(), books_dir = %books_dir.display(), "scanned books directory");
 
@@ -44,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         books_dir,
         cache_dir,
         scan: Arc::new(scan),
+        admin_writes_allowed,
     };
     let app = routes::router(state);
 
@@ -52,4 +60,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// Decide whether the admin write path should be available, given the
+/// DB's schema head and the `ALLOW_UNKNOWN_SCHEMA` env override.
+fn compute_admin_writes_allowed(db_path: &Path) -> bool {
+    let override_set = std::env::var("ALLOW_UNKNOWN_SCHEMA")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "True"))
+        .unwrap_or(false);
+
+    let check = db::Library::open_ro(db_path).map(|lib| lib.check_schema());
+    match (override_set, check) {
+        (true, Ok((status, head))) => {
+            warn!(
+                ?status, migration = ?head,
+                "ALLOW_UNKNOWN_SCHEMA set; admin writes enabled regardless of schema check"
+            );
+            true
+        }
+        (true, Err(err)) => {
+            warn!(
+                ?err,
+                "ALLOW_UNKNOWN_SCHEMA set but schema check failed; admin writes enabled anyway"
+            );
+            true
+        }
+        (false, Ok((SchemaStatus::Known, head))) => {
+            info!(migration = ?head, "schema head recognised; admin writes allowed");
+            true
+        }
+        (false, Ok((SchemaStatus::Unknown, head))) => {
+            warn!(
+                migration = ?head,
+                "schema head not in the known-good list; admin writes disabled (set ALLOW_UNKNOWN_SCHEMA=1 to override)"
+            );
+            false
+        }
+        (false, Err(err)) => {
+            warn!(?err, "schema check failed; admin writes disabled");
+            false
+        }
+    }
 }

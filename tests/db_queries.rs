@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use libation_webviewer::db::Library;
+use libation_webviewer::db::{Library, SchemaStatus};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -85,6 +85,51 @@ fn get_book_by_asin_returns_full_detail_for_phm() {
 fn get_book_by_asin_returns_none_for_unknown() {
     let detail = open().get_book_by_asin("NEVERHEARD").expect("query ok");
     assert!(detail.is_none());
+}
+
+#[test]
+fn check_schema_known_on_sample_db() {
+    let (status, head) = open().check_schema();
+    assert_eq!(status, SchemaStatus::Known);
+    assert_eq!(head.as_deref(), Some("20260427201829_ReAddCategoryName2"));
+}
+
+#[test]
+fn check_schema_unknown_for_fabricated_migration_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("fake.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE __EFMigrationsHistory (
+                MigrationId TEXT NOT NULL PRIMARY KEY,
+                ProductVersion TEXT NOT NULL
+            );
+            INSERT INTO __EFMigrationsHistory VALUES ('99999999999999_NotARealMigration', '8.0.0');
+            "#,
+        )
+        .unwrap();
+    }
+    let lib = Library::open_ro(&db_path).unwrap();
+    let (status, head) = lib.check_schema();
+    assert_eq!(status, SchemaStatus::Unknown);
+    assert_eq!(head.as_deref(), Some("99999999999999_NotARealMigration"));
+}
+
+#[test]
+fn check_schema_unknown_when_migrations_table_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("empty.db");
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch("CREATE TABLE not_efm (x INTEGER);")
+            .unwrap();
+    }
+    let lib = Library::open_ro(&db_path).unwrap();
+    let (status, head) = lib.check_schema();
+    assert_eq!(status, SchemaStatus::Unknown);
+    assert_eq!(head, None);
 }
 
 #[test]

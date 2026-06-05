@@ -8,6 +8,23 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ## [Unreleased]
 
+### Added (schema-drift guard slice)
+
+- **Schema-drift guard at startup.** `db::Library::check_schema`
+  reads the latest `MigrationId` from `__EFMigrationsHistory` and
+  compares it against a baked-in `KNOWN_GOOD_MIGRATIONS` list
+  (currently just `20260427201829_ReAddCategoryName2`, the sample
+  DB's head as of June 2026). The result lives on `AppState` as
+  `admin_writes_allowed` and is consulted by the admin write path
+  (next slice) so an unknown schema head is fail-closed.
+- New `ALLOW_UNKNOWN_SCHEMA` env var — when set to `1`/`true`,
+  overrides the guard and enables admin writes regardless. Logged at
+  WARN with the actual schema head so it shows up clearly in the
+  log.
+- 3 new tests in `tests/db_queries.rs`: known head against
+  `sample.db`, fabricated unknown head in a temp DB, and missing
+  `__EFMigrationsHistory` table.
+
 ### Added (sort/filter slice)
 
 - **Library list query params** + HTMX partial-swap. `GET /` accepts

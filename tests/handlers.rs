@@ -34,6 +34,7 @@ fn build_state(cache_dir: &Path) -> AppState {
         books_dir: fixture("."),
         cache_dir: cache_dir.to_path_buf(),
         scan: Arc::new(scan),
+        admin_writes_allowed: true,
     }
 }
 

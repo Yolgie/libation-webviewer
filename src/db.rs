@@ -12,6 +12,21 @@ use rusqlite::{params, Connection, OpenFlags, Row};
 use crate::html::decode_entities;
 use crate::view::{BookDetail, BookView, SeriesEntry};
 
+/// Migration ids the viewer has been validated against. Add new heads
+/// here whenever Libation ships a schema migration the viewer has been
+/// re-tested against. `ALLOW_UNKNOWN_SCHEMA=1` lets an operator override
+/// the resulting gate at runtime.
+const KNOWN_GOOD_MIGRATIONS: &[&str] = &[
+    // Latest seen as of June 2026, from the sample DB.
+    "20260427201829_ReAddCategoryName2",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaStatus {
+    Known,
+    Unknown,
+}
+
 const LIST_BOOKS_SQL: &str = r#"
 SELECT
   b.BookId,
@@ -97,6 +112,30 @@ impl Library {
         )?;
         conn.busy_timeout(Duration::from_secs(5))?;
         Ok(Self { conn })
+    }
+
+    /// The latest `MigrationId` in `__EFMigrationsHistory`, or `None`
+    /// if the table is missing or empty.
+    pub fn latest_migration(&self) -> Option<String> {
+        self.conn
+            .query_row(
+                "SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC LIMIT 1",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+    }
+
+    /// Report whether the DB's schema head is one the viewer has been
+    /// tested against. Returns the head id alongside the verdict so the
+    /// caller can log it.
+    pub fn check_schema(&self) -> (SchemaStatus, Option<String>) {
+        let head = self.latest_migration();
+        let status = match &head {
+            Some(id) if KNOWN_GOOD_MIGRATIONS.contains(&id.as_str()) => SchemaStatus::Known,
+            _ => SchemaStatus::Unknown,
+        };
+        (status, head)
     }
 
     /// List every undeleted book with its authors and narrators.

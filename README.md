@@ -50,7 +50,7 @@ Author's specific Dockge + Caddy stack? See [`examples/dockge/`](./examples/dock
 | `ENABLE_ADMIN`         | `false`          | Mount the admin routes                                                                         |
 | `ADMIN_PASSWORD`       | _unset_          | Plain-text password. Empty + `ENABLE_ADMIN=true` = anonymous admin (only on a trusted network) |
 | `LIBATION_DB_RW`       | _unset_          | Writable path to the same SQLite file; unset = admin writes are no-ops                         |
-| `ALLOW_UNKNOWN_SCHEMA` | `false`          | Allow admin writes even when the EF Core migration head isn't in the known-good list           |
+| `ALLOW_UNKNOWN_SCHEMA` | _unset_          | When set to `1`/`true`, allow admin writes even when the EF Core migration head isn't in the known-good list shipped in the binary. Logged at WARN with the actual head |
 | `RUST_LOG`             | `info`           | Standard `tracing-subscriber` filter                                                           |
 
 ## Development
