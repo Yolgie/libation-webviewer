@@ -1,0 +1,132 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use axum::body::{to_bytes, Body};
+use axum::http::{Request, StatusCode};
+use libation_webviewer::fs::BookFiles;
+use libation_webviewer::routes;
+use libation_webviewer::state::AppState;
+use tower::ServiceExt;
+
+const TEST_ASIN: &str = "TESTBOOK01";
+
+fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(name)
+}
+
+fn build_state(cache_dir: &Path) -> AppState {
+    let m4b = fixture("tiny.m4b");
+    let mut scan = HashMap::new();
+    scan.insert(
+        TEST_ASIN.to_string(),
+        BookFiles {
+            folder: m4b.parent().unwrap().to_path_buf(),
+            audio_files: vec![m4b],
+            metadata_json: None,
+        },
+    );
+    AppState {
+        db_path: fixture("sample.db"),
+        books_dir: fixture("."),
+        cache_dir: cache_dir.to_path_buf(),
+        scan: Arc::new(scan),
+    }
+}
+
+async fn request(state: AppState, uri: &str) -> axum::http::Response<Body> {
+    let app = routes::router(state);
+    app.oneshot(
+        Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn healthz_returns_ok() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/healthz").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn library_list_renders_with_thumbnail_links() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("<h1>Library"));
+    assert!(html.contains(r#"src="/books/B08G9RZBTT/thumb""#));
+    assert!(html.contains(r#"href="/books/B08G9RZBTT""#));
+}
+
+#[tokio::test]
+async fn detail_returns_200_with_book_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/books/B08G9RZBTT").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("Project Hail Mary"));
+    assert!(html.contains("Andy Weir"));
+    assert!(html.contains("Ray Porter"));
+    // Cover img and back link should both be present.
+    assert!(html.contains(r#"src="/books/B08G9RZBTT/cover""#));
+    assert!(html.contains(r#"href="/""#));
+}
+
+#[tokio::test]
+async fn detail_returns_404_for_unknown_asin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/books/NEVERHEARD").await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn files_fragment_lists_audio_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), &format!("/books/{}/files", TEST_ASIN)).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains(&format!("/books/{}/download/0", TEST_ASIN)));
+    assert!(html.contains("tiny.m4b"));
+}
+
+#[tokio::test]
+async fn download_streams_audio_with_attachment_disposition() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), &format!("/books/{}/download/0", TEST_ASIN)).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let headers = resp.headers().clone();
+    assert_eq!(headers.get("content-type").unwrap(), "audio/mp4");
+    let cd = headers.get("content-disposition").unwrap().to_str().unwrap();
+    assert!(cd.contains("attachment"), "expected attachment disposition: {}", cd);
+    assert!(cd.contains("tiny.m4b"));
+
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let on_disk = std::fs::read(fixture("tiny.m4b")).unwrap();
+    assert_eq!(body.as_ref(), on_disk.as_slice());
+}
+
+#[tokio::test]
+async fn download_out_of_range_returns_404() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), &format!("/books/{}/download/99", TEST_ASIN)).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn download_unknown_asin_returns_404() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/books/UNKNOWN0001/download/0").await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}

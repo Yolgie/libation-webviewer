@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+/// Compact summary used in the library list.
 #[derive(Debug, Clone, Serialize)]
 pub struct BookView {
     pub book_id: i64,
@@ -17,4 +18,20 @@ pub struct BookView {
     pub absent_from_last_scan: bool,
     pub authors: Vec<String>,
     pub narrators: Vec<String>,
+}
+
+/// Full per-book record assembled for the detail page.
+#[derive(Debug, Clone, Serialize)]
+pub struct BookDetail {
+    pub view: BookView,
+    pub description: String,
+    pub publishers: Vec<String>,
+    pub series: Vec<SeriesEntry>,
+    pub picture_large_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SeriesEntry {
+    pub name: String,
+    pub order: Option<String>,
 }

@@ -43,10 +43,7 @@ fn project_hail_mary_metadata_is_complete() {
         "expected Andy Weir among authors, got {:?}",
         phm.authors,
     );
-    assert!(
-        !phm.narrators.is_empty(),
-        "expected at least one narrator for PHM"
-    );
+    assert!(!phm.narrators.is_empty(), "expected at least one narrator for PHM");
 }
 
 #[test]
@@ -57,4 +54,55 @@ fn books_are_sorted_by_title_case_insensitive() {
         let b = w[1].title.to_lowercase();
         assert!(a <= b, "books not sorted by title: {:?} > {:?}", a, b);
     }
+}
+
+#[test]
+fn get_book_by_asin_returns_full_detail_for_phm() {
+    let detail = open()
+        .get_book_by_asin("B08G9RZBTT")
+        .expect("query ok")
+        .expect("PHM should exist");
+    assert_eq!(detail.view.title, "Project Hail Mary");
+    assert_eq!(detail.view.length_minutes, 970);
+    assert_eq!(detail.view.authors, vec!["Andy Weir"]);
+    assert!(detail.view.narrators.iter().any(|n| n == "Ray Porter"));
+    assert!(
+        detail.publishers.iter().any(|p| p == "Audible Studios"),
+        "expected Audible Studios in publishers, got {:?}",
+        detail.publishers,
+    );
+    assert!(
+        !detail.description.is_empty(),
+        "expected non-empty description"
+    );
+    assert_eq!(detail.picture_large_id.as_deref(), Some("81Nzlrfud+L"));
+}
+
+#[test]
+fn get_book_by_asin_returns_none_for_unknown() {
+    let detail = open()
+        .get_book_by_asin("NEVERHEARD")
+        .expect("query ok");
+    assert!(detail.is_none());
+}
+
+#[test]
+fn get_book_by_asin_returns_series_when_present() {
+    // "Undeath and Taxes (Dramatized Adaptation)" is book 2 in the Fred series.
+    let detail = open()
+        .get_book_by_asin("1648816533")
+        .expect("query ok")
+        .expect("book should exist");
+    assert!(
+        !detail.series.is_empty(),
+        "expected series entries for this book"
+    );
+    assert!(
+        detail
+            .series
+            .iter()
+            .any(|s| s.name.contains("Fred, the Vampire Accountant")),
+        "expected Fred series, got {:?}",
+        detail.series,
+    );
 }

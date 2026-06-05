@@ -41,7 +41,7 @@ fn render_library(books: &[BookView]) -> String {
             .map(|s| format!(r#"<br><span class="muted">{}</span>"#, html_escape(s)))
             .unwrap_or_default();
         rows.push_str(&format!(
-            "<tr><td><img src=\"/books/{asin}/thumb\" loading=\"lazy\" width=\"60\" height=\"60\" alt=\"\" class=\"thumb\"></td><td>{title}{subtitle}</td><td>{author}</td><td>{narrator}</td><td>{minutes} min</td><td>{status}</td></tr>",
+            "<tr><td><a href=\"/books/{asin}\"><img src=\"/books/{asin}/thumb\" loading=\"lazy\" width=\"60\" height=\"60\" alt=\"\" class=\"thumb\"></a></td><td><a href=\"/books/{asin}\">{title}</a>{subtitle}</td><td>{author}</td><td>{narrator}</td><td>{minutes} min</td><td>{status}</td></tr>",
             asin = html_escape(&b.asin),
             title = html_escape(&b.title),
             subtitle = subtitle_html,
