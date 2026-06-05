@@ -19,7 +19,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    user: "65532:${LIBATION_GID:-65532}"
+    # Run as the same uid/gid Libation uses so file ownership lines up
+    # both directions (reads of the DB/books, writes of the cache).
+    user: "${LIBATION_UID:-65532}:${LIBATION_GID:-65532}"
 
 networks:
   proxy:

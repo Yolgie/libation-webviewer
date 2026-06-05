@@ -70,6 +70,13 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 - MIT [`LICENSE`](./LICENSE).
 - This `CHANGELOG.md`.
 
+### Changed
+
+- `examples/dockge/compose.yaml`: parameterize the container user as
+  `${LIBATION_UID:-65532}:${LIBATION_GID:-65532}` so the stack can run
+  as the same uid Libation uses (e.g. `997:986`), avoiding any
+  permission-mode gymnastics on the bind-mounted DB and books.
+
 ### Fixed
 
 - `release.yaml`: lowercase the image owner so `ghcr.io` works regardless of

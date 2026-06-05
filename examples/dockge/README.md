@@ -19,9 +19,10 @@ homelab topology.
 2. Create `.env` alongside `compose.yaml` with:
    ```
    LIBATION_CONFIG_DIR=/opt/stacks/libation/config
-   LIBATION_BOOKS_DIR=/opt/stacks/libation/books
+   LIBATION_BOOKS_DIR=/data/audiobooks
+   LIBATION_UID=<uid of the libation container's user>
    LIBATION_GID=<gid of the libation container's user>
-   ADMIN_PASSWORD=<something>
+   ADMIN_PASSWORD=<something>     # optional; leave blank for anonymous admin on a VPN
    ```
 3. Append the contents of `caddy.snippet` to your Caddyfile and reload
    Caddy.
