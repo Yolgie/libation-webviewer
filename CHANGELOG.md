@@ -72,10 +72,44 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ### Changed
 
+- Library list and book detail pages now use askama templates instead
+  of `format!`-built HTML. `templates/_layout.html` shares the
+  scaffolding; `library.html`, `book.html`, `files_fragment.html`,
+  `error_db.html`, and `not_found.html` cover the surfaces. Askama's
+  auto-escape replaces the hand-written `html_escape` helper.
+- Bundled CSS (`assets/style.css`) and HTMX 2.0.4 (`assets/htmx.min.js`)
+  embedded into the binary via `rust-embed` and served at `/static/{*}`.
+  The base layout pulls them in so every page has htmx loaded — the
+  partial-swap routes follow in the next slice.
+- DB string fields (`title`, `subtitle`, contributor and series names)
+  are now run through `html::decode_entities` before they reach the
+  template, fixing the `&amp;amp;` double-encode regression: source
+  text like `Spells, Swords, &amp; Stealth` reduces to a single `&amp;`
+  in the rendered HTML.
+- Book descriptions: Libation stores them as raw HTML markup
+  (`<p><b>...</b></p>`); we now run them through `html::paragraphs`
+  in the book handler, so the template renders plain prose paragraphs
+  inside our own `<div class="description"><p>...</p></div>` block
+  rather than leaking escaped tag markers.
 - `examples/dockge/compose.yaml`: parameterize the container user as
   `${LIBATION_UID:-65532}:${LIBATION_GID:-65532}` so the stack can run
   as the same uid Libation uses (e.g. `997:986`), avoiding any
   permission-mode gymnastics on the bind-mounted DB and books.
+
+- New `src/html.rs` helper module (`strip_tags`, `decode_entities`,
+  `paragraphs`) — no external dependency, just regex and a small
+  manual entity table for the handful Libation actually emits.
+- New `src/static_assets.rs` (`#[derive(RustEmbed)]`) and
+  `src/routes/static_route.rs` serving `/static/{*path}` with
+  long-cached `Cache-Control: public, max-age=86400`.
+- 14 new tests bringing the suite to 44 passing:
+  6 unit tests in `src/html.rs` cover `strip_tags`, named + numeric
+  entity decoding, paragraph splitting on `</p><p>`, and edge cases;
+  3 new `tests/handlers.rs` tests assert the library list has no
+  `&amp;amp;` left, the detail page strips description HTML, and
+  every page links to `/static/style.css` + `/static/htmx.min.js`;
+  5 `tests/static_route.rs` tests cover the new route across css/js/
+  svg, the cache header, and 404 on unknown paths.
 
 - Compose files (`compose/compose.yaml` + `examples/dockge/compose.yaml`):
   quote every `${...}` value and the image / path strings. The strict

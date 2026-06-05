@@ -1,0 +1,41 @@
+{% extends "_layout.html" %}
+
+{% block title %}Library &middot; libation-webviewer{% endblock %}
+
+{% block body %}
+<h1>Library <span class="muted">{{ books.len() }} books</span></h1>
+<table>
+<thead>
+<tr>
+    <th></th>
+    <th>Title</th>
+    <th>Author</th>
+    <th>Narrator</th>
+    <th>Length</th>
+    <th>Status</th>
+</tr>
+</thead>
+<tbody id="library-rows">
+{% for b in books %}
+<tr>
+    <td>
+        <a href="/books/{{ b.asin }}">
+            <img src="/books/{{ b.asin }}/thumb" loading="lazy" width="60" height="60" alt="" class="thumb">
+        </a>
+    </td>
+    <td>
+        <a href="/books/{{ b.asin }}">{{ b.title }}</a>
+        {% match b.subtitle %}
+        {% when Some with (s) %}<br><span class="muted">{{ s }}</span>
+        {% when None %}
+        {% endmatch %}
+    </td>
+    <td>{{ b.authors|join(", ") }}</td>
+    <td>{{ b.narrators|join(", ") }}</td>
+    <td>{{ b.length_minutes }} min</td>
+    <td>{{ self::status_label(b.book_status) }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endblock %}

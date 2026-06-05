@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use rusqlite::{params, Connection, OpenFlags, Row};
 
+use crate::html::decode_entities;
 use crate::view::{BookDetail, BookView, SeriesEntry};
 
 const LIST_BOOKS_SQL: &str = r#"
@@ -124,6 +125,7 @@ impl Library {
         while let Some(row) = rows.next()? {
             let role: i64 = row.get(0)?;
             let name: String = row.get(1)?;
+            let name = decode_entities(&name);
             match role {
                 1 => authors.push(name),
                 2 => narrators.push(name),
@@ -143,7 +145,10 @@ impl Library {
             let name: Option<String> = row.get(0)?;
             let order: Option<String> = row.get(1)?;
             if let Some(name) = name {
-                series.push(SeriesEntry { name, order });
+                series.push(SeriesEntry {
+                    name: decode_entities(&name),
+                    order,
+                });
             }
         }
         detail.series = series;
@@ -158,16 +163,17 @@ use rusqlite::OptionalExtension;
 fn map_book_row(row: &Row<'_>) -> rusqlite::Result<BookView> {
     // Subtitle is TEXT NOT NULL in the schema; empty string = no subtitle.
     let subtitle: String = row.get(3)?;
+    let title: String = row.get(2)?;
     let authors_concat: Option<String> = row.get(13)?;
     let narrators_concat: Option<String> = row.get(14)?;
     Ok(BookView {
         book_id: row.get(0)?,
         asin: row.get(1)?,
-        title: row.get(2)?,
+        title: decode_entities(&title),
         subtitle: if subtitle.is_empty() {
             None
         } else {
-            Some(subtitle)
+            Some(decode_entities(&subtitle))
         },
         length_minutes: row.get(4)?,
         locale: row.get(5)?,
@@ -178,24 +184,25 @@ fn map_book_row(row: &Row<'_>) -> rusqlite::Result<BookView> {
         date_added: row.get(10)?,
         is_audible_plus: row.get::<_, i64>(11)? != 0,
         absent_from_last_scan: row.get::<_, i64>(12)? != 0,
-        authors: split_or_empty(authors_concat),
-        narrators: split_or_empty(narrators_concat),
+        authors: split_and_decode(authors_concat),
+        narrators: split_and_decode(narrators_concat),
     })
 }
 
 fn map_detail_row(row: &Row<'_>) -> rusqlite::Result<BookDetail> {
     let subtitle: String = row.get(3)?;
+    let title: String = row.get(2)?;
     let description: String = row.get(8)?;
     let picture_large: Option<String> = row.get(9)?;
     Ok(BookDetail {
         view: BookView {
             book_id: row.get(0)?,
             asin: row.get(1)?,
-            title: row.get(2)?,
+            title: decode_entities(&title),
             subtitle: if subtitle.is_empty() {
                 None
             } else {
-                Some(subtitle)
+                Some(decode_entities(&subtitle))
             },
             length_minutes: row.get(4)?,
             locale: row.get(5)?,
@@ -209,6 +216,9 @@ fn map_detail_row(row: &Row<'_>) -> rusqlite::Result<BookDetail> {
             authors: Vec::new(), // populated by get_book_by_asin
             narrators: Vec::new(),
         },
+        // Description is full HTML markup; downstream callers run
+        // `html::paragraphs` on it so the template gets plain-text
+        // paragraphs and askama's auto-escape does the rest.
         description,
         publishers: Vec::new(),
         series: Vec::new(),
@@ -216,10 +226,10 @@ fn map_detail_row(row: &Row<'_>) -> rusqlite::Result<BookDetail> {
     })
 }
 
-fn split_or_empty(opt: Option<String>) -> Vec<String> {
+fn split_and_decode(opt: Option<String>) -> Vec<String> {
     match opt {
         None => Vec::new(),
         Some(s) if s.is_empty() => Vec::new(),
-        Some(s) => s.split("|||").map(String::from).collect(),
+        Some(s) => s.split("|||").map(decode_entities).collect(),
     }
 }

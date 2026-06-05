@@ -145,3 +145,49 @@ async fn download_unknown_asin_returns_404() {
     let resp = request(build_state(tmp.path()), "/books/UNKNOWN0001/download/0").await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn library_list_does_not_double_encode_ampersands() {
+    // sample.db subtitles like "Spells, Swords, &amp; Stealth ..." used to
+    // render as "&amp;amp;" because the source HTML entities were escaped
+    // a second time. After html::decode_entities in the db layer this
+    // should reduce to a single &amp; in the rendered HTML.
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/").await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(
+        !html.contains("&amp;amp;"),
+        "library HTML still contains double-encoded ampersand"
+    );
+}
+
+#[tokio::test]
+async fn detail_page_strips_html_from_description() {
+    // PHM's description in sample.db is raw HTML with <p>/<b>/<i> tags
+    // and entity-encoded text. After html::paragraphs the template should
+    // render plain prose paragraphs - no escaped tag markers visible to
+    // the reader.
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/books/B08G9RZBTT").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(
+        !html.contains("&lt;p&gt;") && !html.contains("&lt;b&gt;") && !html.contains("&lt;i&gt;"),
+        "description HTML still leaks escaped tags from the source"
+    );
+    // The actual text should be present:
+    assert!(html.contains("THE #1"));
+    assert!(html.contains("NEW YORK TIMES"));
+}
+
+#[tokio::test]
+async fn pages_include_htmx_and_stylesheet() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/").await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains(r#"href="/static/style.css""#));
+    assert!(html.contains(r#"src="/static/htmx.min.js""#));
+}

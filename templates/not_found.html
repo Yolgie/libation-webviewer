@@ -1,0 +1,9 @@
+{% extends "_layout.html" %}
+
+{% block title %}Not found &middot; libation-webviewer{% endblock %}
+
+{% block body %}
+<nav><a href="/">&larr; library</a></nav>
+<h1>Book not found</h1>
+<p>No book with ASIN <code>{{ asin }}</code> in the library.</p>
+{% endblock %}

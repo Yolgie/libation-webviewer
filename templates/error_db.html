@@ -1,0 +1,9 @@
+{% extends "_layout.html" %}
+
+{% block title %}Data unavailable &middot; libation-webviewer{% endblock %}
+
+{% block body %}
+<h1>Library data unavailable</h1>
+<p>The viewer is running, but Libation's database could not be read.</p>
+<pre>{{ reason }}</pre>
+{% endblock %}

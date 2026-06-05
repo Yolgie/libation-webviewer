@@ -1,0 +1,9 @@
+{% if files.is_empty() %}
+<p class="muted">No audio files found on disk for this book.</p>
+{% else %}
+<ul class="files">
+    {% for f in files %}
+    <li><a href="/books/{{ asin }}/download/{{ loop.index0 }}">{{ f }}</a></li>
+    {% endfor %}
+</ul>
+{% endif %}

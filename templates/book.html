@@ -1,0 +1,61 @@
+{% extends "_layout.html" %}
+
+{% block title %}{{ detail.view.title }} &middot; libation-webviewer{% endblock %}
+
+{% block body %}
+<nav><a href="/">&larr; library</a></nav>
+<div class="detail-layout">
+    <div>
+        <img class="cover" src="/books/{{ detail.view.asin }}/cover" alt="">
+    </div>
+    <div>
+        <h1>
+            {{ detail.view.title }}
+            {% match detail.view.subtitle %}
+            {% when Some with (s) %}<br><span class="muted">{{ s }}</span>
+            {% when None %}
+            {% endmatch %}
+        </h1>
+        {% if files_missing %}<p class="badge">Files missing on disk</p>{% endif %}
+        <p>
+            <strong>By:</strong> {{ detail.view.authors|join(", ") }}<br>
+            <strong>Read by:</strong> {{ detail.view.narrators|join(", ") }}
+        </p>
+        {% if !detail.publishers.is_empty() %}
+        <p><strong>Publisher:</strong> {{ detail.publishers|join(", ") }}</p>
+        {% endif %}
+        {% if !detail.series.is_empty() %}
+        <p>
+            <strong>Series:</strong>
+            {% for s in detail.series %}
+            {{ s.name }}{% match s.order %}{% when Some with (o) %} <span class="muted">#{{ o }}</span>{% when None %}{% endmatch %}{% if !loop.last %}, {% endif %}
+            {% endfor %}
+        </p>
+        {% endif %}
+        <p class="muted">
+            {{ detail.view.length_minutes }} min &middot;
+            {{ detail.view.locale }}{% match detail.view.language %}{% when Some with (l) %} / {{ l }}{% when None %}{% endmatch %} &middot;
+            ASIN <code>{{ detail.view.asin }}</code> &middot;
+            {{ self::status_label(detail.view.book_status) }}
+        </p>
+
+        <h2>Files</h2>
+        {% if files.is_empty() %}
+        <p class="muted">No audio files found on disk for this book.</p>
+        {% else %}
+        <ul class="files">
+            {% for f in files %}
+            <li><a href="/books/{{ detail.view.asin }}/download/{{ loop.index0 }}">{{ f }}</a></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if !cleaned_description.is_empty() %}
+        <h2>Description</h2>
+        <div class="description">
+            {% for p in description_paragraphs %}<p>{{ p }}</p>{% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
