@@ -1,0 +1,29 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Local secrets / config
+.env
+.env.local
+*.env.local
+
+# Runtime cache when running the viewer locally
+/cache/
+
+# Editor / IDE
+*.swp
+*~
+.idea/
+.vscode/
+.DS_Store
+
+# Personal sample data used while planning — never commit
+/LibationContext.db
+/LibationContext.db-wal
+/LibationContext.db-shm
+/Project Hail Mary*/
+/*.m4b
+/*.mp3
+/*.m4a
+/*.metadata.json
+/report.html

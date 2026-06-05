@@ -1,0 +1,25 @@
+# Tool versions for libation-webviewer.
+# `mise install` (or the Claude sandbox auto-install) provisions everything below.
+#
+# System packages mise does not manage — install separately on a fresh machine:
+#   sudo apt-get install -y sqlite3 file ffmpeg musl-tools docker.io
+#
+# Why:
+#   sqlite3 + file       inspecting the Libation DB and audio files during dev/debugging
+#   ffmpeg               regenerating the binary test fixtures (tiny.m4b, tiny.mp3, ...)
+#   musl-tools           statically linking the release binary for the distroless image
+#   docker.io            building and running the container locally
+
+[tools]
+# Core language
+rust = "stable"
+
+# Cargo-installed dev tooling
+"cargo:cargo-nextest" = "latest"      # faster, parallel test runner used in CI
+"cargo:cargo-llvm-cov" = "latest"     # coverage reporting (no threshold; informational)
+"cargo:cargo-audit"   = "latest"      # RustSec advisory checks
+"cargo:cargo-deny"    = "latest"      # licence + duplicate-crate enforcement
+
+# Other binaries
+"ubi:cli/cli"          = "latest"     # GitHub CLI (gh) — push, PRs, releases
+"ubi:casey/just"       = "latest"     # task runner referenced by the justfile
