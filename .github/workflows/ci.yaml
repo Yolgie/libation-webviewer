@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # for the coverage comment
+    steps:
+      # Note: actions below use version tags for readability. Dependabot
+      # will convert to commit-SHA pins per the project's policy.
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov,cargo-audit,cargo-deny
+
+      - run: cargo fmt --check
+
+      - run: cargo clippy --all-targets -- -D warnings
+
+      - run: cargo nextest run --all
+
+      - run: cargo llvm-cov nextest --lcov --output-path lcov.info
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info
+
+      # Coverage delta is informational; reviewers enforce "tests for new code".
+      - uses: romeovs/lcov-reporter-action@v0.4.0
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          lcov-file: ./lcov.info
+
+      - run: cargo audit
+
+      - run: cargo deny check

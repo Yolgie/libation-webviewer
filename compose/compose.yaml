@@ -1,0 +1,25 @@
+services:
+  libation-webviewer:
+    image: ghcr.io/yolgie/libation-webviewer:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      LIBATION_DB:         /data/libation-config/LibationContext.db
+      LIBATION_BOOKS:      /data/books
+      CACHE_DIR:           /cache
+      # Admin write path is off by default. To enable: set both
+      # ENABLE_ADMIN=true and ADMIN_PASSWORD=<your password>.
+      ENABLE_ADMIN:        "false"
+      LIBATION_DB_RW:      ${LIBATION_DB_RW:-}
+      ADMIN_PASSWORD:      ${ADMIN_PASSWORD:-}
+    volumes:
+      - ${LIBATION_CONFIG_DIR}:/data/libation-config:ro
+      # Second mount of the same path — only opened when admin writes are enabled.
+      - ${LIBATION_CONFIG_DIR}:/data/libation-config-rw
+      - ${LIBATION_BOOKS_DIR}:/data/books:ro
+      - ./cache:/cache
+    user: "65532:${LIBATION_GID:-65532}"
+    read_only: true
+    tmpfs:
+      - /tmp

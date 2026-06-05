@@ -1,0 +1,35 @@
+name: codeql
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 9 * * 1"   # Mondays 09:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: rust
+
+      - run: cargo build --all-targets
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:rust"

@@ -1,0 +1,26 @@
+services:
+  libation-webviewer:
+    image: ghcr.io/yolgie/libation-webviewer:latest
+    restart: unless-stopped
+    environment:
+      LIBATION_DB:         /data/libation-config/LibationContext.db
+      LIBATION_DB_RW:      /data/libation-config-rw/LibationContext.db
+      LIBATION_BOOKS:      /data/books
+      CACHE_DIR:           /cache
+      ENABLE_ADMIN:        "true"
+      ADMIN_PASSWORD:      ${ADMIN_PASSWORD:-}      # blank = anonymous admin (VPN-only)
+    volumes:
+      - ${LIBATION_CONFIG_DIR}:/data/libation-config:ro
+      - ${LIBATION_CONFIG_DIR}:/data/libation-config-rw
+      - ${LIBATION_BOOKS_DIR}:/data/books:ro
+      - ./cache:/cache
+    networks:
+      - proxy
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "65532:${LIBATION_GID:-65532}"
+
+networks:
+  proxy:
+    external: true
