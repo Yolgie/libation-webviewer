@@ -77,6 +77,12 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
   as the same uid Libation uses (e.g. `997:986`), avoiding any
   permission-mode gymnastics on the bind-mounted DB and books.
 
+- Compose files (`compose/compose.yaml` + `examples/dockge/compose.yaml`):
+  quote every `${...}` value and the image / path strings. The strict
+  YAML 1.2 plain-scalar rules reject `{` and `}` in some lexer modes;
+  quoting sidesteps the variation and survives paste-through-terminal
+  cleanly. Locally validated with `docker compose v2.30 config`.
+
 ### Fixed
 
 - `release.yaml`: lowercase the image owner so `ghcr.io` works regardless of
