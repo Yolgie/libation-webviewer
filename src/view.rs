@@ -71,6 +71,10 @@ pub struct BookDetail {
     pub publishers: Vec<String>,
     pub series: Vec<SeriesEntry>,
     pub picture_large_id: Option<String>,
+    /// External URLs from the `Supplement` table (Audible's
+    /// post-purchase PDFs and similar). The viewer surfaces them as
+    /// outbound links; it does not fetch or proxy the bytes.
+    pub supplements: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

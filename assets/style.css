@@ -69,14 +69,20 @@ img.cover {
     background: #f0f0f0;
 }
 
-ul.files {
+ul.files,
+ul.supplements {
     list-style: none;
     padding-left: 0;
 }
 
-ul.files li {
+ul.files li,
+ul.supplements li {
     padding: 0.3em 0;
     border-bottom: 1px solid #eee;
+}
+
+ul.supplements li a {
+    word-break: break-all;
 }
 
 .description {

@@ -188,6 +188,30 @@ async fn detail_page_strips_html_from_description() {
 }
 
 #[tokio::test]
+async fn detail_page_renders_supplement_links() {
+    // Die Zwerge has one Supplement row in sample.db.
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/books/B07L8CWQVG").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("Supplements"));
+    assert!(html.contains(".pdf"));
+    assert!(html.contains(r#"target="_blank""#));
+    assert!(html.contains(r#"rel="noopener noreferrer""#));
+}
+
+#[tokio::test]
+async fn detail_page_hides_supplements_section_when_none() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/books/B08G9RZBTT").await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    // PHM has no supplements - the section should be absent entirely.
+    assert!(!html.contains("<h2>Supplements</h2>"));
+}
+
+#[tokio::test]
 async fn library_search_filters_to_matches() {
     let tmp = tempfile::tempdir().unwrap();
     let resp = request(build_state(tmp.path()), "/?q=Project+Hail+Mary").await;

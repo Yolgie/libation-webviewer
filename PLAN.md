@@ -733,8 +733,8 @@ real system. They must be ticked off on the operator's host:
 - **Audible CDN cover provider** — scaffolded via the `CoverProvider`
   trait but not wired into the chain. Add when the embedded path can't
   serve a book (e.g. a corrupt download).
-- **PDF supplement download** — the `Supplement` table holds URLs the
-  viewer could surface. Out of v1.
+<!-- Shipped: PDF supplements are now surfaced on the book detail page. -->
+
 - **Multi-account UI affordance** — `LibraryBooks.Account` could become
   a filter when more than one distinct Account exists in the DB.
 - **Mark-as-finished toggle** — `UserDefinedItem.IsFinished` is a

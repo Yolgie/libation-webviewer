@@ -88,6 +88,32 @@ fn get_book_by_asin_returns_none_for_unknown() {
 }
 
 #[test]
+fn get_book_by_asin_returns_supplements_when_present() {
+    // "Die Zwerge" (ASIN B07L8CWQVG) has one Supplement row in sample.db.
+    let detail = open()
+        .get_book_by_asin("B07L8CWQVG")
+        .expect("query ok")
+        .expect("Die Zwerge should be in sample.db");
+    assert_eq!(detail.supplements.len(), 1);
+    let url = &detail.supplements[0];
+    assert!(
+        url.starts_with("https://"),
+        "expected an https URL, got {url}"
+    );
+    assert!(url.ends_with(".pdf"), "expected a .pdf URL, got {url}");
+}
+
+#[test]
+fn get_book_by_asin_supplements_empty_for_book_without_any() {
+    // PHM doesn't have a supplement row.
+    let detail = open()
+        .get_book_by_asin("B08G9RZBTT")
+        .expect("query ok")
+        .expect("PHM should exist");
+    assert!(detail.supplements.is_empty());
+}
+
+#[test]
 fn check_schema_known_on_sample_db() {
     let (status, head) = open().check_schema();
     assert_eq!(status, SchemaStatus::Known);

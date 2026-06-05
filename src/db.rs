@@ -97,6 +97,10 @@ WHERE sb.BookId = ?1
 ORDER BY sb."Order"
 "#;
 
+const SUPPLEMENTS_SQL: &str = r#"
+SELECT Url FROM Supplement WHERE BookId = ?1 ORDER BY SupplementId
+"#;
+
 pub struct Library {
     conn: Connection,
 }
@@ -229,6 +233,19 @@ impl Library {
         }
         detail.series = series;
 
+        // Supplement URLs (zero or more). We surface them as outbound
+        // links and never fetch the bytes ourselves.
+        let mut supplements = Vec::new();
+        let mut supp_stmt = self.conn.prepare(SUPPLEMENTS_SQL)?;
+        let mut rows = supp_stmt.query(params![detail.view.book_id])?;
+        while let Some(row) = rows.next()? {
+            let url: String = row.get(0)?;
+            if !url.is_empty() {
+                supplements.push(url);
+            }
+        }
+        detail.supplements = supplements;
+
         Ok(Some(detail))
     }
 }
@@ -299,6 +316,7 @@ fn map_detail_row(row: &Row<'_>) -> rusqlite::Result<BookDetail> {
         publishers: Vec::new(),
         series: Vec::new(),
         picture_large_id: picture_large.filter(|s| !s.is_empty()),
+        supplements: Vec::new(),
     })
 }
 

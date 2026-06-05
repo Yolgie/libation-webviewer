@@ -8,6 +8,23 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ## [Unreleased]
 
+### Added (supplements)
+
+- **PDF supplement links** on the book detail page. Libation's
+  `Supplement` table holds post-purchase URLs (e.g. companion PDFs);
+  the detail page now surfaces them under a "Supplements" section
+  with each URL as an outbound link (`target="_blank"`,
+  `rel="noopener noreferrer"`). The viewer doesn't fetch or proxy
+  the bytes — it just exposes the URL Libation already stored.
+- `BookDetail.supplements: Vec<String>` plus a new `SUPPLEMENTS_SQL`
+  query (`SELECT Url FROM Supplement WHERE BookId = ?1 ORDER BY
+  SupplementId`).
+- 4 new tests: `get_book_by_asin` returns the supplement URL for
+  "Die Zwerge" (the one book in the sample DB with a supplement)
+  and an empty list for books without any; the detail page renders
+  the `<h2>Supplements</h2>` section with the URL when present and
+  hides it entirely when absent.
+
 ### Added (admin write path slice)
 
 - **Admin login, logout, and `POST /books/{asin}/requeue`.** Behind

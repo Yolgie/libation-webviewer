@@ -67,6 +67,19 @@
         </ul>
         {% endif %}
 
+        {% if !detail.supplements.is_empty() %}
+        <h2>Supplements</h2>
+        <ul class="supplements">
+            {% for url in detail.supplements %}
+            <li><a href="{{ url }}" rel="noopener noreferrer" target="_blank">{{ url }}</a></li>
+            {% endfor %}
+        </ul>
+        <p class="muted">
+            Audible-hosted post-purchase PDFs etc.; the viewer just
+            surfaces the URL and never fetches them.
+        </p>
+        {% endif %}
+
         {% if !cleaned_description.is_empty() %}
         <h2>Description</h2>
         <div class="description">
