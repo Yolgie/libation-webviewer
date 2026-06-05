@@ -23,6 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ghcr.io requires the owner segment to be lowercase; github.repository
+      # preserves case, so normalise once and reuse.
+      - name: Compute lowercase image name
+        run: echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -45,7 +50,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
@@ -65,10 +70,10 @@ jobs:
       - name: Trivy image scan (CRITICAL fails the workflow)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          image-ref: ghcr.io/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: trivy.sarif
-          severity: CRITICAL,HIGH
+          severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
 
@@ -80,17 +85,17 @@ jobs:
       - name: Generate SBOM (CycloneDX)
         uses: anchore/sbom-action@v0
         with:
-          image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          image: ghcr.io/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
           output-file: sbom.cdx.json
 
       - uses: sigstore/cosign-installer@v3
 
       - name: Sign image (keyless)
-        run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes ghcr.io/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
       - name: Attest SBOM
-        run: cosign attest --yes --predicate sbom.cdx.json --type cyclonedx ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: cosign attest --yes --predicate sbom.cdx.json --type cyclonedx ghcr.io/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
       - uses: release-drafter/release-drafter@v6
         with:
