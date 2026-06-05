@@ -41,7 +41,8 @@ fn render_library(books: &[BookView]) -> String {
             .map(|s| format!(r#"<br><span class="muted">{}</span>"#, html_escape(s)))
             .unwrap_or_default();
         rows.push_str(&format!(
-            "<tr><td>{title}{subtitle}</td><td>{author}</td><td>{narrator}</td><td>{minutes} min</td><td>{status}</td></tr>",
+            "<tr><td><img src=\"/books/{asin}/thumb\" loading=\"lazy\" width=\"60\" height=\"60\" alt=\"\" class=\"thumb\"></td><td>{title}{subtitle}</td><td>{author}</td><td>{narrator}</td><td>{minutes} min</td><td>{status}</td></tr>",
+            asin = html_escape(&b.asin),
             title = html_escape(&b.title),
             subtitle = subtitle_html,
             author = html_escape(&b.authors.join(", ")),
@@ -63,12 +64,13 @@ h1 {{ margin-bottom: .2em; }}
 table {{ border-collapse: collapse; width: 100%; margin-top: 1em; }}
 th, td {{ padding: .4em .8em; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }}
 th {{ background: #f5f5f5; font-weight: 600; }}
+img.thumb {{ display: block; background: #f0f0f0; border-radius: 4px; }}
 </style>
 </head>
 <body>
 <h1>Library <span class="muted">{n} books</span></h1>
 <table>
-<thead><tr><th>Title</th><th>Author</th><th>Narrator</th><th>Length</th><th>Status</th></tr></thead>
+<thead><tr><th></th><th>Title</th><th>Author</th><th>Narrator</th><th>Length</th><th>Status</th></tr></thead>
 <tbody>
 {rows}
 </tbody>
