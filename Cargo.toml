@@ -25,15 +25,15 @@ rust-embed = { version = "8", features = ["mime-guess"] }
 mime_guess = "2"
 
 # Persistence
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Cover extraction
-mp4ameta = "0.11"
+mp4ameta = "0.13"
 id3 = "1"
 
 # Image processing
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
-fast_image_resize = { version = "5", features = ["image"] }
+fast_image_resize = { version = "6", features = ["image"] }
 
 # Serialisation
 serde = { version = "1", features = ["derive"] }
@@ -51,14 +51,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Misc
 bytes = "1"
 regex = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"
-reqwest = { version = "0.12", features = ["json"], default-features = false, optional = false }
+reqwest = { version = "0.13", features = ["json"], default-features = false, optional = false }
 insta = "1"
 tower = { version = "0.5", features = ["util"] }   # ServiceExt::oneshot for handler tests
 
