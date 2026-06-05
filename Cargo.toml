@@ -25,7 +25,7 @@ rust-embed = { version = "8", features = ["mime-guess"] }
 mime_guess = "2"
 
 # Persistence
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Cover extraction
 mp4ameta = "0.11"
