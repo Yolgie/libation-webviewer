@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use libation_webviewer::auth::AuthBackend;
-use libation_webviewer::fs::BookFiles;
 use libation_webviewer::routes;
 use libation_webviewer::state::AppState;
 use tower::ServiceExt;
@@ -19,23 +18,25 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn build_state(cache_dir: &Path) -> AppState {
-    let m4b = fixture("tiny.m4b");
-    let mut scan = HashMap::new();
-    scan.insert(
-        TEST_ASIN.to_string(),
-        BookFiles {
-            folder: m4b.parent().unwrap().to_path_buf(),
-            audio_files: vec![m4b],
-            metadata_json: None,
-        },
-    );
+/// Lay out a books root with the TESTBOOK01 fixture in a properly-named
+/// `[ASIN]` folder under `root`. Returns the books-root path (`<root>/books`).
+fn setup_books_dir(root: &Path) -> PathBuf {
+    let books = root.join("books");
+    let book_folder = books.join(format!("Tiny Test [{}]", TEST_ASIN));
+    fs::create_dir_all(&book_folder).unwrap();
+    fs::copy(fixture("tiny.m4b"), book_folder.join("tiny.m4b")).unwrap();
+    books
+}
+
+fn build_state(root: &Path) -> AppState {
+    let books_dir = setup_books_dir(root);
+    let cache_dir = root.join("cache");
+    fs::create_dir_all(&cache_dir).unwrap();
     AppState {
         db_path: fixture("sample.db"),
         db_path_rw: None,
-        books_dir: fixture("."),
-        cache_dir: cache_dir.to_path_buf(),
-        scan: Arc::new(scan),
+        books_dir,
+        cache_dir,
         admin_writes_allowed: true,
         enable_admin: false,
         auth: Arc::new(AuthBackend::new(None)),
@@ -101,8 +102,36 @@ async fn files_fragment_lists_audio_files() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let html = std::str::from_utf8(&body).unwrap();
-    assert!(html.contains(&format!("/books/{}/download/0", TEST_ASIN)));
+    assert!(html.contains(&format!("/books/{}/download/tiny.m4b", TEST_ASIN)));
     assert!(html.contains("tiny.m4b"));
+    // The fragment wraps its content so HTMX outerHTML swaps land
+    // on a stable target across refreshes.
+    assert!(html.contains(r#"id="files-list""#));
+}
+
+#[tokio::test]
+async fn files_fragment_picks_up_files_added_after_startup() {
+    // The regression this guards: previously the scan was cached at
+    // startup, so a file Libation dropped post-startup stayed invisible
+    // until container restart. Now per-book routes re-scan live.
+    let tmp = tempfile::tempdir().unwrap();
+    let state = build_state(tmp.path());
+    let new_asin = "POSTSTART1";
+    let new_folder = state.books_dir.join(format!("Late Arrival [{}]", new_asin));
+    fs::create_dir_all(&new_folder).unwrap();
+    // Hit the fragment before any audio file lands.
+    let resp = request(state.clone(), &format!("/books/{}/files", new_asin)).await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("No audio files found"));
+
+    // Drop an audio file in, hit the fragment again, expect it to show up.
+    fs::copy(fixture("tiny.m4b"), new_folder.join("late.m4b")).unwrap();
+    let resp = request(state, &format!("/books/{}/files", new_asin)).await;
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("late.m4b"));
+    assert!(html.contains(&format!("/books/{}/download/late.m4b", new_asin)));
 }
 
 #[tokio::test]
@@ -110,7 +139,7 @@ async fn download_streams_audio_with_attachment_disposition() {
     let tmp = tempfile::tempdir().unwrap();
     let resp = request(
         build_state(tmp.path()),
-        &format!("/books/{}/download/0", TEST_ASIN),
+        &format!("/books/{}/download/tiny.m4b", TEST_ASIN),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -134,11 +163,11 @@ async fn download_streams_audio_with_attachment_disposition() {
 }
 
 #[tokio::test]
-async fn download_out_of_range_returns_404() {
+async fn download_unknown_filename_returns_404() {
     let tmp = tempfile::tempdir().unwrap();
     let resp = request(
         build_state(tmp.path()),
-        &format!("/books/{}/download/99", TEST_ASIN),
+        &format!("/books/{}/download/nope.m4b", TEST_ASIN),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -147,8 +176,60 @@ async fn download_out_of_range_returns_404() {
 #[tokio::test]
 async fn download_unknown_asin_returns_404() {
     let tmp = tempfile::tempdir().unwrap();
-    let resp = request(build_state(tmp.path()), "/books/UNKNOWN0001/download/0").await;
+    let resp = request(
+        build_state(tmp.path()),
+        "/books/UNKNOWN0001/download/anything.m4b",
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn download_rejects_path_traversal_attempts() {
+    // The handler matches on basename against the live scan, so
+    // anything that doesn't look like a known file (path-separator
+    // segments included) must 404 rather than escape the books root.
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(
+        build_state(tmp.path()),
+        &format!("/books/{}/download/..%2Ftiny.m4b", TEST_ASIN),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn download_link_is_stable_when_files_are_reordered() {
+    // Regression for the index-based URL trap: with /download/{n}, a
+    // stale page that linked index=0 -> "b.m4b" would silently serve
+    // "a.m4b" after the live scan picked up a new sibling that sorts
+    // first. Now the link names the file, so it either resolves to
+    // the original file or 404s.
+    let tmp = tempfile::tempdir().unwrap();
+    let state = build_state(tmp.path());
+    let asin = "REORDER001";
+    let folder = state.books_dir.join(format!("Reorder [{}]", asin));
+    fs::create_dir_all(&folder).unwrap();
+    fs::copy(fixture("tiny.m4b"), folder.join("b.m4b")).unwrap();
+
+    // Slip a sibling in that sorts before "b.m4b" — under the old
+    // index-keyed scheme this would have shifted b.m4b from index 0
+    // to index 1.
+    fs::copy(fixture("tiny.m4b"), folder.join("a.m4b")).unwrap();
+
+    let resp = request(state, &format!("/books/{}/download/b.m4b", asin)).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        cd.contains("b.m4b"),
+        "filename-keyed URL should still resolve to b.m4b after a.m4b appeared, got {}",
+        cd
+    );
 }
 
 #[tokio::test]
@@ -209,6 +290,21 @@ async fn detail_page_hides_supplements_section_when_none() {
     let html = std::str::from_utf8(&body).unwrap();
     // PHM has no supplements - the section should be absent entirely.
     assert!(!html.contains("<h2>Supplements</h2>"));
+}
+
+#[tokio::test]
+async fn detail_page_has_files_refresh_button() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resp = request(build_state(tmp.path()), "/books/B08G9RZBTT").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(
+        html.contains(r#"hx-get="/books/B08G9RZBTT/files""#),
+        "detail page is missing the Refresh button's hx-get"
+    );
+    assert!(html.contains(r##"hx-target="#files-list""##));
+    assert!(html.contains(">Refresh<"));
 }
 
 #[tokio::test]

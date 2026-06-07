@@ -56,16 +56,14 @@
         </p>
         {% endif %}
 
-        <h2>Files</h2>
-        {% if files.is_empty() %}
-        <p class="muted">No audio files found on disk for this book.</p>
-        {% else %}
-        <ul class="files">
-            {% for f in files %}
-            <li><a href="/books/{{ detail.view.asin }}/download/{{ loop.index0 }}">{{ f }}</a></li>
-            {% endfor %}
-        </ul>
-        {% endif %}
+        <h2>
+            Files
+            <button type="button" class="link-button"
+                    hx-get="/books/{{ asin }}/files"
+                    hx-target="#files-list"
+                    hx-swap="outerHTML">Refresh</button>
+        </h2>
+        {% include "files_fragment.html" %}
 
         {% if !detail.supplements.is_empty() %}
         <h2>Supplements</h2>

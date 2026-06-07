@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -20,7 +19,6 @@ fn build_state(cache_dir: &Path) -> AppState {
         db_path_rw: None,
         books_dir: fixture("."),
         cache_dir: cache_dir.to_path_buf(),
-        scan: Arc::new(HashMap::new()),
         admin_writes_allowed: true,
         enable_admin: false,
         auth: Arc::new(AuthBackend::new(None)),

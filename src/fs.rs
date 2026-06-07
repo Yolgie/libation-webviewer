@@ -31,6 +31,52 @@ pub fn parse_asin(name: &str) -> Option<String> {
     asin_regex().captures(name).map(|c| c[1].to_string())
 }
 
+/// Walk `root` looking for a sub-directory whose name carries the given
+/// `[ASIN]` token. Returns the matching folder path, or `None`. An
+/// unreadable root logs a warning and returns `None`.
+pub fn find_book_folder(root: &Path, asin: &str) -> Option<PathBuf> {
+    let read = match std::fs::read_dir(root) {
+        Ok(r) => r,
+        Err(err) => {
+            warn!(path = %root.display(), %err, "books root unreadable; cannot resolve ASIN");
+            return None;
+        }
+    };
+    for entry in read.flatten() {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(t) if t.is_dir() => {}
+            _ => continue,
+        }
+        // Skip (don't abort) on names we can't parse as UTF-8 — a single
+        // unrelated non-UTF-8 sibling shouldn't make every later ASIN
+        // lookup fail depending on `readdir` order. Matches `scan_books`.
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if parse_asin(name).as_deref() == Some(asin) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Live per-request scan: locate `asin`'s folder under `root` and read
+/// its current contents. Returns `None` if no folder with that ASIN
+/// exists yet (e.g., Libation hasn't downloaded it). This is cheap —
+/// two `readdir` calls — and is the source of truth for per-book
+/// routes so that downloads which appear post-startup are visible
+/// without restarting the container.
+pub fn scan_one(root: &Path, asin: &str) -> Option<BookFiles> {
+    let folder = find_book_folder(root, asin)?;
+    let (audio_files, metadata_json) = scan_book_dir(&folder);
+    Some(BookFiles {
+        folder,
+        audio_files,
+        metadata_json,
+    })
+}
+
 /// Walk `root` and return a map of ASIN -> BookFiles. Missing/unreadable
 /// roots yield an empty map with a warning logged; they never panic.
 pub fn scan_books(root: impl AsRef<Path>) -> HashMap<String, BookFiles> {
