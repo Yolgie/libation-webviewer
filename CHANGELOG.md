@@ -8,6 +8,24 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ## [Unreleased]
 
+### Changed (action SHA pinning)
+
+- Every GitHub Actions reference in the workflows is now pinned by
+  commit SHA with the major-version tag as a trailing comment, e.g.
+  `uses: actions/checkout@df4cb1c0...  # v6`. Covers all three
+  workflow files (`ci.yaml`, `codeql.yaml`, `release.yaml`) and
+  every action used: `actions/{checkout, upload-artifact}`,
+  `dtolnay/rust-toolchain`, `Swatinem/rust-cache`,
+  `taiki-e/install-action`, `github/codeql-action/{init, analyze,
+  upload-sarif}`, `docker/{setup-qemu-action, setup-buildx-action,
+  login-action, metadata-action, build-push-action}`,
+  `aquasecurity/trivy-action`, `anchore/sbom-action`,
+  `sigstore/cosign-installer`, `release-drafter/release-drafter`,
+  `romeovs/lcov-reporter-action`.
+- Matches the project policy in PLAN.md ("actions pinned by commit
+  SHA, Dependabot keeps them bumped"). Dependabot's
+  `github-actions` ecosystem will now bump the SHAs in place.
+
 ### Added (supplements)
 
 - **PDF supplement links** on the book detail page. Libation's
