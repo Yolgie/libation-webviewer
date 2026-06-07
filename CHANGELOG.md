@@ -8,6 +8,46 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ## [Unreleased]
 
+### Fixed (live file scan, #16)
+
+- **New Libation downloads are visible without a container restart.**
+  The startup `scan_books()` call and `AppState.scan` cache are
+  gone; every per-book route (cover, detail, files-fragment,
+  download) now calls `fs::scan_one(&books_dir, asin)` per request
+  — two `readdir`s, ~negligible cost — and reflects whatever is on
+  disk *right now*. The on-disk cover cache (keyed by source
+  mtime+size) already invalidated itself; with the live source
+  lookup it actually gets the chance to.
+- **Refresh button** next to the "Files" header on the book detail
+  page, wired with `hx-get="/books/{asin}/files"` and
+  `hx-target="#files-list"`. The `files_fragment.html` template is
+  now wrapped in `<div id="files-list">` so the HTMX
+  `outerHTML` swap lands on a stable target across refreshes. No
+  auth gate — rescanning the books folder is a read-only operation.
+- **Download URLs are now filename-keyed**, not index-keyed
+  (`/books/{asin}/download/{filename}` instead of `…/{n}`). With
+  the live scan now resolving the file list per request, an
+  index-based URL on a stale page could silently serve the wrong
+  file if a sibling appeared/disappeared and reshuffled the alpha
+  sort. The handler matches the URL's basename against the live
+  scan's `audio_files`, which is also a hard allow-list against
+  `../` and absolute-path tricks. Two new tests cover the
+  reorder-stability case and an encoded `..%2F` traversal attempt.
+- `fs::find_book_folder` now `continue`s past non-UTF-8 directory
+  entries instead of aborting the whole lookup with `?`. A single
+  unrelated non-UTF-8 sibling under the books root would
+  previously break every later ASIN resolution depending on
+  `readdir` order; the behaviour now matches the older
+  `scan_books` path.
+- New regression test `files_fragment_picks_up_files_added_after_startup`
+  creates a fresh `[ASIN]` folder mid-test, hits the fragment
+  (empty), drops a file in, hits it again, and asserts the file
+  shows up. This is the exact behaviour the cached scan used to
+  break.
+- New helpers in `src/fs.rs`: `find_book_folder(root, asin)` and
+  `scan_one(root, asin)`. `scan_books()` itself stays (used by
+  `tests/fs_scan.rs`) — main just no longer calls it.
+
 ### Added (SonarQube Cloud scanning)
 
 - New `.github/workflows/sonar.yaml` runs the

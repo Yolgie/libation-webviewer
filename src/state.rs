@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::auth::AuthBackend;
-use crate::fs::BookFiles;
 
 #[derive(Clone, Debug)]
 pub struct AppState {
@@ -13,12 +11,12 @@ pub struct AppState {
     /// write attempts return `503 Service Unavailable` regardless of
     /// auth state.
     pub db_path_rw: Option<PathBuf>,
+    /// Root of the books bind mount. Per-book routes call
+    /// `fs::scan_one(&books_dir, asin)` per request, so files that
+    /// Libation drops in here become visible immediately — no restart
+    /// or cache invalidation required.
     pub books_dir: PathBuf,
     pub cache_dir: PathBuf,
-    /// ASIN -> BookFiles. Built once at startup; immutable until the next
-    /// process restart. Wrapped in `Arc` so cloning AppState into axum
-    /// state is cheap.
-    pub scan: Arc<HashMap<String, BookFiles>>,
     /// Whether the schema-drift guard considered the DB safe to write
     /// to. Defaults to `false`; the admin write path checks this on
     /// every request, so an unknown migration head is fail-closed.

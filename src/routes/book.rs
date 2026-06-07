@@ -14,6 +14,7 @@ use tracing::{error, warn};
 
 use crate::cover;
 use crate::db;
+use crate::fs::scan_one;
 use crate::html;
 use crate::routes::library::status_label;
 use crate::state::AppState;
@@ -27,7 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/books/{asin}/cover", get(cover_full))
         .route("/books/{asin}/thumb", get(cover_thumb))
         .route("/books/{asin}/files", get(files_fragment))
-        .route("/books/{asin}/download/{n}", get(download))
+        .route("/books/{asin}/download/{filename}", get(download))
 }
 
 async fn cover_full(State(state): State<AppState>, Path(asin): Path<String>) -> Response {
@@ -39,7 +40,7 @@ async fn cover_thumb(State(state): State<AppState>, Path(asin): Path<String>) ->
 }
 
 async fn serve_image(state: AppState, asin: String, want_thumb: bool) -> Response {
-    let Some(book) = state.scan.get(&asin) else {
+    let Some(book) = scan_one(&state.books_dir, &asin) else {
         return placeholder();
     };
     let Some(source) = book.audio_files.first() else {
@@ -84,10 +85,8 @@ async fn detail(
         }
     };
 
-    let files = state
-        .scan
-        .get(&asin)
-        .map(|bf| bf.audio_files.clone())
+    let files = scan_one(&state.books_dir, &asin)
+        .map(|bf| bf.audio_files)
         .unwrap_or_default();
     let files_missing = files.is_empty();
 
@@ -106,6 +105,7 @@ async fn detail(
 
     render_template(BookTemplate {
         detail: &detail,
+        asin: &asin,
         files: &file_names,
         files_missing,
         description_paragraphs: &description_paragraphs,
@@ -119,9 +119,7 @@ fn load_detail(state: &AppState, asin: &str) -> rusqlite::Result<Option<BookDeta
 }
 
 async fn files_fragment(State(state): State<AppState>, Path(asin): Path<String>) -> Response {
-    let files: Vec<String> = state
-        .scan
-        .get(&asin)
+    let files: Vec<String> = scan_one(&state.books_dir, &asin)
         .map(|bf| {
             bf.audio_files
                 .iter()
@@ -142,13 +140,21 @@ async fn files_fragment(State(state): State<AppState>, Path(asin): Path<String>)
 
 async fn download(
     State(state): State<AppState>,
-    Path((asin, n)): Path<(String, usize)>,
+    Path((asin, filename)): Path<(String, String)>,
 ) -> Result<Response, (StatusCode, String)> {
-    let Some(book) = state.scan.get(&asin) else {
+    let Some(book) = scan_one(&state.books_dir, &asin) else {
         return Err((StatusCode::NOT_FOUND, "book not on disk".into()));
     };
-    let Some(source) = book.audio_files.get(n) else {
-        return Err((StatusCode::NOT_FOUND, "file index out of range".into()));
+    // Match by basename against the live scan: the link the user
+    // clicked stays stable even if a sibling file appeared/disappeared
+    // mid-session and reshuffled the sort order, and the membership
+    // check is a hard allow-list against `../` and absolute paths.
+    let Some(source) = book
+        .audio_files
+        .iter()
+        .find(|p| p.file_name().and_then(|s| s.to_str()) == Some(&filename))
+    else {
+        return Err((StatusCode::NOT_FOUND, "file not found in book".into()));
     };
 
     let file = tokio::fs::File::open(source).await.map_err(|err| {
@@ -218,6 +224,10 @@ fn not_found(asin: &str) -> Response {
 #[template(path = "book.html")]
 struct BookTemplate<'a> {
     detail: &'a BookDetail,
+    /// Lifted to a top-level field so the `files_fragment.html`
+    /// include (which references `asin` directly) renders cleanly
+    /// both when included inline and when served on its own.
+    asin: &'a str,
     files: &'a [String],
     files_missing: bool,
     description_paragraphs: &'a [String],

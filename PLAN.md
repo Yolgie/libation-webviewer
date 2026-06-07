@@ -123,7 +123,7 @@ host paths        │
             │  - RO SQLite handle (always open)  │
             │  - RW SQLite handle (opened only   │
             │    inside admin write transactions)│
-            │  - on-disk scanner (cached in mem) │
+            │  - on-disk scanner (live per req)  │
             │  - cover extraction pipeline       │
             │  - HTMX-driven UI                  │
             └────────────────────────────────────┘
@@ -765,7 +765,9 @@ After the first build:
 ## Critical files to touch (or create)
 
 - `src/db.rs` — queries, enums, schema check.
-- `src/fs.rs` — folder scanner + ASIN parser.
+- `src/fs.rs` — folder scanner + ASIN parser + live per-request
+  `scan_one()` helper used by all per-book routes (so files Libation
+  drops in after startup are visible without a restart).
 - `src/cover.rs` — mp4ameta/id3 extract → resize → cache.
 - `src/auth.rs` — plaintext-password verify + in-memory session map.
 - `src/main.rs` — axum router + state init.

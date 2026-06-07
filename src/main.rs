@@ -5,7 +5,6 @@ use std::sync::Arc;
 use libation_webviewer::{
     auth::AuthBackend,
     db::{self, SchemaStatus},
-    fs::scan_books,
     routes,
     state::AppState,
 };
@@ -70,15 +69,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let auth = Arc::new(AuthBackend::new(admin_password));
 
-    let scan = scan_books(&books_dir);
-    info!(count = scan.len(), books_dir = %books_dir.display(), "scanned books directory");
+    info!(books_dir = %books_dir.display(), "books directory configured; per-book routes scan it live");
 
     let state = AppState {
         db_path,
         db_path_rw,
         books_dir,
         cache_dir,
-        scan: Arc::new(scan),
         admin_writes_allowed,
         enable_admin,
         auth,
