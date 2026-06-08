@@ -18,8 +18,9 @@ What those tests cannot verify:
   the surrounding DOM.
 - `HX-Push-Url` updates the address bar, and a refresh reproduces the
   filtered view.
-- The HTMX library version we ship in `assets/static/` is compatible
-  with the attributes we emit.
+- The HTMX library version we ship (embedded from `assets/` via
+  `rust-embed`, served from `/static/htmx.min.js`) is compatible with
+  the attributes we emit.
 - CSS / progressive-enhancement: the page is still usable with JS off
   (a stated v1 nice-to-have).
 
