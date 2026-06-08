@@ -199,13 +199,16 @@ Cache layout:
 ```
 /cache/covers/<asin>/orig-<srchash>.jpg     full extracted image
 /cache/covers/<asin>/thumb-<srchash>.webp   resized (200×200) for list view
-/cache/covers/<asin>/.miss                  empty sentinel for "no cover"
 ```
 
 Where `<srchash>` = first 16 hex chars of sha256("<mtime>:<size>") of the
-source audio file. Files persist across restarts; eviction is by capacity
-(see `CACHE_MAX_BYTES` env). On a stale hash, the new file gets written
-and the old one is removed in the same operation.
+source audio file. Files persist across restarts. The cache is
+unbounded in v1 — operator-managed: clearing `/cache` is safe and only
+costs the next cold-start extraction pass. A `.miss` sentinel for "no
+embedded cover" and capacity-based eviction (`CACHE_MAX_BYTES`) were
+considered and deferred: in the target deployment (single Libation
+library, single admin) extraction is cheap relative to the rest of a
+request and disk pressure has not been an issue.
 
 ## Routes
 
@@ -215,7 +218,7 @@ and the old one is removed in the same operation.
 | GET    | `/books/{asin}`               | Book detail (HTML)                                         |
 | GET    | `/books/{asin}/cover`         | Full-res cover image                                       |
 | GET    | `/books/{asin}/thumb`         | Resized thumbnail                                          |
-| GET    | `/books/{asin}/download/{n}`  | Stream the n-th audio file (Content-Disposition: attachment) |
+| GET    | `/books/{asin}/download/{filename}` | Stream an audio file by basename, resolved against a live scan (Content-Disposition: attachment) |
 | GET    | `/books/{asin}/files`         | List of files for the book (HTML fragment, used by detail page) |
 | GET    | `/partial/library`            | HTMX partial: just the library `<table>`/`<ul>` for filter swaps |
 | POST   | `/admin/login`                | Verifies password, sets a session cookie                   |
@@ -276,10 +279,16 @@ Auth gate (deliberately simple — low-sensitivity, easy setup):
 - `ADMIN_PASSWORD` env var holds the password in plain text. The
   operator drops it into their `.env`; no hashing step.
 - `/admin/login` constant-time-compares the submitted password against
-  `ADMIN_PASSWORD`. On success, the app generates a random 256-bit
-  token, stores it in an in-memory `HashMap<Token, Expiry>` (24h TTL),
-  and sets it as a cookie. No HMAC, no `SESSION_SECRET` — the token is
-  only valid because the map holds it; restart clears all sessions.
+  `ADMIN_PASSWORD`. On success the app mints a signed cookie of the
+  form `<expiry_unix>.<hex(hmac_sha256(SESSION_SECRET, expiry_unix))>`
+  with a 24h TTL. Verification re-derives the HMAC under the same
+  secret and rejects on signature mismatch or past expiry — no
+  server-side state.
+- `SESSION_SECRET` env (64-char hex = 32 bytes) anchors the HMAC. If
+  unset, the app generates a key at startup and sessions drop on
+  restart; a WARN is logged so the operator knows what they're
+  signing up for. Setting `SESSION_SECRET` is the supported way to
+  keep sessions valid across restarts.
 - If `ADMIN_PASSWORD` is unset and `ENABLE_ADMIN=true`, every
   authenticated check returns *granted* — the "personal install on a
   VPN" mode. Startup logs a WARN so accidental deployments are obvious.
@@ -287,28 +296,47 @@ Auth gate (deliberately simple — low-sensitivity, easy setup):
   routes are absent from the router entirely (not just 403), and the
   UI never renders the toggle.
 
-Threat model: the viewer sits behind a trust boundary (VPN or LAN).
-The password is one click of friction — against a misclick or a
-wandering browser tab — not a hardened secret. If the threat model
-ever tightens, swap in argon2id + signed cookies behind the same
-`AuthBackend` trait.
+Cookies carry `HttpOnly; Secure; SameSite=Strict; Path=/`. The
+`Secure` flag assumes the deployment topology documented in README
+(Caddy + Let's Encrypt terminating TLS in front of the viewer
+container); serving the viewer over plain HTTP will silently drop
+the cookie.
+
+Threat model: the viewer sits behind a trust boundary (VPN or LAN)
+plus a TLS-terminating reverse proxy. The password is one click of
+friction — against a misclick or a wandering browser tab — not a
+hardened secret. Login rate-limiting is delegated to the reverse
+proxy (`caddy-ratelimit` or equivalent) by design, since the
+viewer's first-class deployment includes one.
+
+> **v1.1 amendment (auth):** the original design stored session
+> tokens in an in-memory `HashMap<token, expiry>` keyed by an opaque
+> cookie. That map grew unbounded under repeated logins and needed a
+> sweep task to bound it. v1.1 switches to HMAC-signed cookies —
+> stateless, no mutex on the hot path, no sweep needed. The trade-off
+> is a `SESSION_SECRET` env knob, which is optional (auto-generated
+> at startup when absent). See `docs/tracing-plan.md` for the
+> separately-tracked observability slice that was discovered during
+> the same audit but deferred.
 
 ## What lives in `/cache` (the only app-writable surface)
 
 ```
 /cache/covers/...        cover + thumbnail bytes (described above)
-/cache/scan.log          rotating debug log of cover extraction outcomes
-                          (helps diagnose books without recoverable covers)
 ```
 
-Book metadata is held in memory: at startup the app runs the
-assembly query once and keeps the result in an
-`Arc<RwLock<Vec<BookView>>>`. The library is small (the sample DB
-holds 64 books; even a 10× larger library is well under a megabyte),
-so an in-memory snapshot is fine. The snapshot reloads if the
-Libation DB's mtime moves between requests. The on-disk cache is
-fully disposable; deleting it costs only the next cold-start
-image-extraction pass.
+Cover-extraction outcomes are logged via `tracing` to stdout (WARN on
+failure, INFO on cold-build), not to a file in `/cache`. Operators
+plug that into whatever log pipeline they already run.
+
+Book metadata is not cached in memory. Each request opens a fresh
+read-only handle to Libation's DB and runs the assembly query; the
+books folder under `LIBATION_BOOKS` is scanned live per request. The
+sample DB has 64 books and the assembly query is a single round-trip,
+so the per-request cost is negligible; in exchange new downloads from
+Libation appear immediately without needing a viewer restart or any
+mtime-based invalidation. The on-disk cover cache is fully disposable;
+deleting it costs only the next cold-start image-extraction pass.
 
 ## Graceful degradation (must always render)
 
@@ -322,13 +350,13 @@ has a defined fallback; none escalates to a 5xx on read paths.
 | DB row present, no folder/file on disk               | Book renders in the list with a "missing files" badge; cover falls through to placeholder; download → 404 |
 | Folder present on disk, no matching DB row           | Surfaced in an "orphaned files" view (linkable but off the main list); ASIN parsed from the folder name.  |
 | Folder name has no `[ASIN]` token                    | Folder skipped; INFO log entry with the path so the operator can rename it.                               |
-| File present, no embedded cover                      | Placeholder served; `.miss` sentinel written so we don't re-parse on every request.                       |
-| mp4ameta / id3 errors mid-parse                      | Placeholder cover; WARN log; `.miss` sentinel written; book otherwise functional.                         |
+| File present, no embedded cover                      | Placeholder served; WARN log. No `.miss` sentinel (deferred — re-parses on next request).                  |
+| mp4ameta / id3 errors mid-parse                      | Placeholder cover; WARN log; book otherwise functional. (No `.miss` sentinel — see cover-cache notes.)     |
 | `metadata.json` missing                              | Detail page renders DB-derived fields only; no review/summary section.                                    |
 | `metadata.json` present but unparseable              | Same as missing; WARN log with the line/column.                                                           |
 | Multiple audio files in one folder (split chapters)  | First (alpha-sorted) is the cover source; all files exposed under `/books/<asin>/files`.                  |
 | Mixed format inside one folder (.m4b + .mp3)         | First (alpha-sorted) drives format detection; all files still downloadable.                               |
-| Disk cache write fails (out of space, ro filesystem) | Pipeline still returns freshly decoded bytes; `/healthz` flips to a warning state with the cause.         |
+| Disk cache write fails (out of space, ro filesystem) | Pipeline still returns the freshly decoded bytes; cache write failure logged at WARN. (`/healthz` only verifies DB reachability; cache state is not surfaced there.) |
 | Unknown enum value (`BookStatus`/`Role`/etc.)        | Rendered as `Unknown(N)`; WARN log; book otherwise functional.                                            |
 | `__EFMigrationsHistory` head unknown                 | Admin write path disabled with a banner; reads continue.                                                  |
 
@@ -432,8 +460,9 @@ depend on network or absolute paths.
   ID3v2 `APIC` frame. Same `just fixtures-mp3` script. MP3 is a
   first-class format from v1.
 - **`tests/fixtures/no_cover.m4b`** — same audio as `tiny.m4b` but with
-  the `covr` atom stripped. Drives the "no embedded cover → placeholder
-  + `.miss` sentinel" path.
+  the `covr` atom stripped. Drives the "no embedded cover → placeholder"
+  path. (No `.miss` sentinel is written; the deferred-features note in
+  the cover-cache section explains why.)
 - **`tests/fixtures/no_cover.mp3`** — MP3 with no `APIC` frame; same
   fallback path for the id3 dispatch.
 - **`tests/fixtures/corrupt.m4b`** — truncated MP4 box header. Verifies
@@ -462,7 +491,7 @@ depend on network or absolute paths.
 | Format dispatch        | `.m4b`/`.m4a`/`.mp4` → mp4ameta; `.mp3` → id3; correct route taken. |
 | Graceful degradation   | One test per row of the degradation matrix; assert response is 2xx and the documented fallback (badge, placeholder, hint) is present. |
 | Thumbnail resize       | Deterministic resize; sha256 matches expected per-platform vector.  |
-| Cache hit / miss / staleness | mtime+size change invalidates and rewrites; `.miss` honored.  |
+| Cache hit / miss / staleness | mtime+size change invalidates the keyed cache file and a re-extract rewrites it. (No `.miss` sentinel in v1 — see the cover-cache notes.) |
 | Auth gate              | Correct password → token in map + cookie set; wrong password → 401; expired token → 401; constant-time compare verified via timing harness. |
 | HTTP read handlers     | `oneshot` axum requests for every GET; status, body, headers.       |
 | HTTP write handlers    | With/without admin session; success path; verify only `BookStatus` row is touched. |
@@ -582,15 +611,15 @@ COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 COPY templates/ templates/
 COPY assets/ assets/
-RUN cargo build --release --target x86_64-unknown-linux-musl --bin webviewer
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin libation-webviewer
 
 # ---- runtime ----
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/webviewer /webviewer
+COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/libation-webviewer /libation-webviewer
 ENV CACHE_DIR=/cache
 USER nonroot
 EXPOSE 8080
-ENTRYPOINT ["/webviewer"]
+ENTRYPOINT ["/libation-webviewer"]
 ```
 
 Final image ~12–20 MB. `nonroot` is uid 65532 — the host paths must be

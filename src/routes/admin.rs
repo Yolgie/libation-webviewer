@@ -9,7 +9,7 @@ use axum::{
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use crate::auth::{self, extract_session_token};
+use crate::auth;
 use crate::db;
 use crate::state::AppState;
 
@@ -64,10 +64,10 @@ async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginForm>
     (StatusCode::SEE_OTHER, headers).into_response()
 }
 
-async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(token) = extract_session_token(&headers) {
-        state.auth.invalidate_token(&token);
-    }
+async fn logout() -> Response {
+    // Sessions are stateless (signed cookies), so logout is just
+    // clearing the cookie at the browser. Nothing to invalidate
+    // server-side.
     let mut h = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&auth::make_clear_cookie()) {
         h.insert(header::SET_COOKIE, v);
@@ -107,9 +107,14 @@ async fn requeue(
         );
     };
 
-    // Resolve ASIN -> BookId via the read-only handle.
-    let book_id =
-        match db::Library::open_ro(&state.db_path).and_then(|lib| lib.book_id_for_asin(&asin)) {
+    // Resolve ASIN -> BookId via the read-only pool.
+    let book_id = {
+        let asin_for_query = asin.clone();
+        match state
+            .db
+            .ro(move |conn| db::book_id_for_asin(conn, &asin_for_query))
+            .await
+        {
             Ok(Some(id)) => id,
             Ok(None) => {
                 return error_response(
@@ -122,22 +127,37 @@ async fn requeue(
                 error!(?err, "DB read failed during requeue");
                 return error_response(StatusCode::INTERNAL_SERVER_ERROR, &asin, "DB read failed.");
             }
-        };
-
-    let mut lib_rw = match db::Library::open_rw(db_rw_path) {
-        Ok(l) => l,
-        Err(err) => {
-            error!(?err, "open_rw failed");
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &asin,
-                "Could not open the writable DB.",
-            );
         }
     };
 
-    match lib_rw.requeue_book(book_id) {
-        Ok(0) => {
+    // Open + write the RW handle on the blocking pool. RW connections
+    // are not pooled (PLAN.md "Admin-mode mechanics"); we open one,
+    // run the single UPDATE, and drop it.
+    let rw_path = db_rw_path.clone();
+    let rows = tokio::task::spawn_blocking(move || -> rusqlite::Result<usize> {
+        let mut lib_rw = db::Library::open_rw(&rw_path)?;
+        lib_rw.requeue_book(book_id)
+    })
+    .await;
+
+    match rows {
+        Err(join_err) => {
+            error!(?join_err, "requeue blocking task panicked");
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &asin,
+                "Write failed (see server logs).",
+            )
+        }
+        Ok(Err(err)) => {
+            error!(?err, "requeue UPDATE failed");
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &asin,
+                "Write failed (see server logs).",
+            )
+        }
+        Ok(Ok(0)) => {
             warn!(
                 asin = %asin, %book_id,
                 "requeue: UPDATE matched no row (no UserDefinedItem entry for this book)"
@@ -147,20 +167,12 @@ async fn requeue(
                 error: Some("No UserDefinedItem row matched - nothing to update."),
             })
         }
-        Ok(rows) => {
+        Ok(Ok(rows)) => {
             info!(asin = %asin, %book_id, %rows, "requeue: BookStatus reset to 0");
             render(RequeueResultTemplate {
                 asin: &asin,
                 error: None,
             })
-        }
-        Err(err) => {
-            error!(?err, "requeue UPDATE failed");
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &asin,
-                "Write failed (see server logs).",
-            )
         }
     }
 }

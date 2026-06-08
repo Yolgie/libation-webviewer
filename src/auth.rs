@@ -1,39 +1,60 @@
-//! Admin auth: optional password gate plus in-memory session tokens.
+//! Admin auth: optional password gate plus HMAC-signed cookie sessions.
 //!
-//! Deliberately simple (per PLAN.md):
+//! Deliberately simple (per PLAN.md v1.1):
 //!   * `ADMIN_PASSWORD` env var holds the password in plain text.
 //!   * Login compares it with `subtle::ConstantTimeEq`.
-//!   * Successful login mints a random 256-bit token, stored in an
-//!     in-memory `HashMap<token, expiry>`; the cookie is just a lookup
-//!     key. No HMAC, no `SESSION_SECRET`, no persistence — restarting
-//!     the process clears every session.
+//!   * Successful login mints a signed cookie of the form
+//!     `<expiry_unix>.<hex(hmac_sha256(secret, expiry_unix))>`. The
+//!     server keeps no per-session state: verify parses the cookie,
+//!     re-derives the HMAC under its secret, and rejects on either
+//!     signature mismatch or past expiry.
+//!   * `SESSION_SECRET` env (64-char hex = 32 bytes) anchors the HMAC.
+//!     If unset, the secret is generated at startup and sessions drop
+//!     on restart — same effective behaviour as the pre-v1.1 in-memory
+//!     map.
 //!   * If `ADMIN_PASSWORD` is unset, the gate is effectively open
-//!     (anonymous admin mode); main.rs already logged a WARN in that
-//!     case.
+//!     (anonymous admin mode); main.rs already logged a WARN.
+//!
+//! Cookies are issued with `Secure; HttpOnly; SameSite=Strict; Path=/`.
+//! The `Secure` flag assumes the deployment topology documented in
+//! README (Caddy + Let's Encrypt terminating TLS in front of the
+//! viewer container).
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::http::HeaderMap;
+use hmac::{Hmac, KeyInit, Mac};
+use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 const SESSION_TTL: Duration = Duration::from_secs(24 * 3600);
 pub const COOKIE_NAME: &str = "lwv_session";
 
+type HmacSha256 = Hmac<Sha256>;
+
 #[derive(Debug)]
 pub struct AuthBackend {
     /// `None` = no password required (anonymous admin mode).
     password: Option<String>,
-    sessions: Mutex<HashMap<String, SystemTime>>,
+    secret: [u8; 32],
 }
 
 impl AuthBackend {
+    /// Construct with a freshly-generated 256-bit secret. Tokens minted
+    /// by this instance won't validate after a restart unless the
+    /// operator persists the secret out-of-band via `SESSION_SECRET`.
     pub fn new(password: Option<String>) -> Self {
+        Self::with_secret(password, random_secret())
+    }
+
+    /// Construct with an explicit 256-bit secret (e.g. loaded from
+    /// `SESSION_SECRET`). Tokens minted under the same secret survive
+    /// process restarts.
+    pub fn with_secret(password: Option<String>, secret: [u8; 32]) -> Self {
         Self {
             password: password.filter(|s| !s.is_empty()),
-            sessions: Mutex::new(HashMap::new()),
+            secret,
         }
     }
 
@@ -51,36 +72,52 @@ impl AuthBackend {
         submitted.as_bytes().ct_eq(expected.as_bytes()).into()
     }
 
-    /// Issue a fresh 256-bit session token (two uuid::simple-formatted
-    /// chunks). Inserted into the in-memory map with a 24h expiry.
+    /// Issue a fresh signed cookie value with a 24h expiry.
     pub fn issue_token(&self) -> String {
-        let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-        let expiry = SystemTime::now() + SESSION_TTL;
-        self.sessions
-            .lock()
-            .expect("session map poisoned")
-            .insert(token.clone(), expiry);
-        token
+        self.mint(SystemTime::now() + SESSION_TTL)
     }
 
-    /// Verify a session token: returns `true` iff present in the map and
-    /// not expired. Expired tokens are evicted on the way through.
+    fn mint(&self, expiry: SystemTime) -> String {
+        let expiry_unix = expiry
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mac = self.sign(expiry_unix);
+        format!("{}.{}", expiry_unix, hex::encode(mac))
+    }
+
+    fn sign(&self, expiry_unix: u64) -> [u8; 32] {
+        // HMAC accepts any key length; only fails on allocation issues
+        // that can't happen for a 32-byte key.
+        let mut mac =
+            HmacSha256::new_from_slice(&self.secret).expect("HMAC-SHA256 accepts any key length");
+        mac.update(expiry_unix.to_string().as_bytes());
+        mac.finalize().into_bytes().into()
+    }
+
+    /// Verify a session cookie: the HMAC must match under our secret
+    /// AND the encoded expiry must be in the future. Stateless — no
+    /// server-side lookup. Any malformed token returns `false` without
+    /// panicking.
     pub fn verify_token(&self, token: &str) -> bool {
-        let mut sessions = self.sessions.lock().expect("session map poisoned");
-        if let Some(expiry) = sessions.get(token).copied() {
-            if SystemTime::now() < expiry {
-                return true;
-            }
-            sessions.remove(token);
+        let Some((expiry_str, sig_hex)) = token.split_once('.') else {
+            return false;
+        };
+        let Ok(expiry_unix) = expiry_str.parse::<u64>() else {
+            return false;
+        };
+        let Ok(sig) = hex::decode(sig_hex) else {
+            return false;
+        };
+        let expected = self.sign(expiry_unix);
+        if !bool::from(sig.as_slice().ct_eq(&expected)) {
+            return false;
         }
-        false
-    }
-
-    pub fn invalidate_token(&self, token: &str) {
-        self.sessions
-            .lock()
-            .expect("session map poisoned")
-            .remove(token);
+        let now_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        expiry_unix > now_unix
     }
 
     /// Convenience for handlers: read the cookie out of the headers,
@@ -97,12 +134,28 @@ impl AuthBackend {
     }
 
     #[cfg(test)]
-    fn force_expire(&self, token: &str) {
-        self.sessions.lock().unwrap().insert(
-            token.to_string(),
-            SystemTime::now() - Duration::from_secs(1),
-        );
+    fn mint_with_expiry(&self, expiry: SystemTime) -> String {
+        self.mint(expiry)
     }
+}
+
+/// Generate a fresh 256-bit secret. UUIDv4 derives its random bytes
+/// from the platform CSPRNG (via `getrandom`), so concatenating two of
+/// them yields >240 bits of entropy — plenty for an HMAC key, and no
+/// extra dependency beyond what's already pulled in for token IDs.
+fn random_secret() -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[..16].copy_from_slice(Uuid::new_v4().as_bytes());
+    out[16..].copy_from_slice(Uuid::new_v4().as_bytes());
+    out
+}
+
+/// Decode a 32-byte secret from a hex-encoded `SESSION_SECRET` env
+/// var. Returns `None` on bad hex or wrong length so the caller can
+/// log a clear error and fall back to a generated secret.
+pub fn decode_secret(hex_str: &str) -> Option<[u8; 32]> {
+    let bytes = hex::decode(hex_str.trim()).ok()?;
+    bytes.try_into().ok()
 }
 
 /// Read `lwv_session=<token>` from the `Cookie` header, if present.
@@ -120,7 +173,7 @@ pub fn extract_session_token(headers: &HeaderMap) -> Option<String> {
 
 pub fn make_set_cookie(token: &str) -> String {
     format!(
-        "{}={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        "{}={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
         COOKIE_NAME,
         token,
         SESSION_TTL.as_secs(),
@@ -129,7 +182,7 @@ pub fn make_set_cookie(token: &str) -> String {
 
 pub fn make_clear_cookie() -> String {
     format!(
-        "{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+        "{}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0",
         COOKIE_NAME
     )
 }
@@ -155,7 +208,6 @@ mod tests {
 
     #[test]
     fn empty_password_treated_as_no_password() {
-        // Empty ADMIN_PASSWORD env var also means anonymous mode.
         let a = AuthBackend::new(Some("".into()));
         assert!(!a.requires_password());
         assert!(a.verify_password("whatever"));
@@ -175,29 +227,61 @@ mod tests {
     fn issue_then_verify_token() {
         let a = AuthBackend::new(Some("p".into()));
         let token = a.issue_token();
-        assert!(token.len() >= 32);
+        // <expiry>.<hex sha256> = at least "<unix>." + 64 hex chars.
+        assert!(token.contains('.'));
         assert!(a.verify_token(&token));
-        // A random other token must fail.
         assert!(!a.verify_token("not-a-real-token"));
     }
 
     #[test]
-    fn invalidate_token_clears_the_session() {
+    fn expired_token_is_rejected() {
         let a = AuthBackend::new(Some("p".into()));
-        let token = a.issue_token();
-        assert!(a.verify_token(&token));
-        a.invalidate_token(&token);
+        let token = a.mint_with_expiry(SystemTime::now() - Duration::from_secs(1));
         assert!(!a.verify_token(&token));
     }
 
     #[test]
-    fn expired_token_is_rejected_and_evicted() {
+    fn tampered_hmac_is_rejected() {
         let a = AuthBackend::new(Some("p".into()));
         let token = a.issue_token();
-        a.force_expire(&token);
-        assert!(!a.verify_token(&token));
-        // Second call should still return false (already evicted).
-        assert!(!a.verify_token(&token));
+        let mut bytes = token.into_bytes();
+        // Flip the last hex nibble — still well-formed, signature invalid.
+        let last = bytes.last_mut().unwrap();
+        *last = if *last == b'0' { b'1' } else { b'0' };
+        let tampered = String::from_utf8(bytes).unwrap();
+        assert!(!a.verify_token(&tampered));
+    }
+
+    #[test]
+    fn token_signed_by_a_different_secret_is_rejected() {
+        let a = AuthBackend::with_secret(Some("p".into()), [1u8; 32]);
+        let b = AuthBackend::with_secret(Some("p".into()), [2u8; 32]);
+        let token = a.issue_token();
+        assert!(!b.verify_token(&token));
+    }
+
+    #[test]
+    fn malformed_token_shape_does_not_panic() {
+        let a = AuthBackend::new(Some("p".into()));
+        assert!(!a.verify_token(""));
+        assert!(!a.verify_token("no-dot"));
+        assert!(!a.verify_token(".only-dot"));
+        assert!(!a.verify_token("only-dot."));
+        assert!(!a.verify_token("not-a-number.deadbeef"));
+        assert!(!a.verify_token("12345.not-hex!"));
+        assert!(!a.verify_token("12345.aa.bb"));
+    }
+
+    #[test]
+    fn token_survives_when_secret_is_pinned() {
+        // The key UX win for SESSION_SECRET: tokens minted by one
+        // backend instance verify against a fresh instance with the
+        // same secret. (Whether the *process* survives is irrelevant.)
+        let secret = [7u8; 32];
+        let a = AuthBackend::with_secret(Some("p".into()), secret);
+        let token = a.issue_token();
+        let b = AuthBackend::with_secret(Some("p".into()), secret);
+        assert!(b.verify_token(&token));
     }
 
     #[test]
@@ -231,14 +315,43 @@ mod tests {
     fn set_cookie_has_security_attributes() {
         let c = make_set_cookie("abc");
         assert!(c.contains("HttpOnly"));
+        assert!(c.contains("Secure"));
         assert!(c.contains("SameSite=Strict"));
         assert!(c.contains("Path=/"));
         assert!(c.contains("Max-Age=86400"));
     }
 
     #[test]
-    fn clear_cookie_has_zero_max_age() {
+    fn clear_cookie_has_zero_max_age_and_secure() {
         let c = make_clear_cookie();
         assert!(c.contains("Max-Age=0"));
+        assert!(c.contains("Secure"));
+    }
+
+    #[test]
+    fn decode_secret_roundtrips_a_well_formed_hex_string() {
+        let hex_str = "0".repeat(64);
+        assert_eq!(decode_secret(&hex_str), Some([0u8; 32]));
+    }
+
+    #[test]
+    fn decode_secret_rejects_wrong_length() {
+        // 30 bytes (60 hex chars) — close but no cigar.
+        assert!(decode_secret(&"0".repeat(60)).is_none());
+        assert!(decode_secret(&"0".repeat(70)).is_none());
+    }
+
+    #[test]
+    fn decode_secret_rejects_bad_hex() {
+        assert!(decode_secret(&"zz".repeat(32)).is_none());
+    }
+
+    #[test]
+    fn random_secrets_differ_between_calls() {
+        // 256 bits of entropy means collisions are astronomically
+        // unlikely; we mostly want to assert the bytes aren't a constant.
+        let a = random_secret();
+        let b = random_secret();
+        assert_ne!(a, b);
     }
 }
