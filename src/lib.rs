@@ -7,6 +7,7 @@
 pub mod auth;
 pub mod cover;
 pub mod db;
+pub mod error;
 pub mod fs;
 pub(crate) mod html;
 pub(crate) mod query;

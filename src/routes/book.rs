@@ -14,6 +14,7 @@ use tracing::{error, warn};
 
 use crate::cover;
 use crate::db;
+use crate::error::AppError;
 use crate::fs::scan_one;
 use crate::html;
 use crate::routes::library::status_label;
@@ -145,9 +146,9 @@ async fn files_fragment(State(state): State<AppState>, Path(asin): Path<String>)
 async fn download(
     State(state): State<AppState>,
     Path((asin, filename)): Path<(String, String)>,
-) -> Result<Response, (StatusCode, String)> {
+) -> Result<Response, AppError> {
     let Some(book) = scan_one(&state.books_dir, &asin) else {
-        return Err((StatusCode::NOT_FOUND, "book not on disk".into()));
+        return Err(AppError::not_found("book not on disk"));
     };
     // Match by basename against the live scan: the link the user
     // clicked stays stable even if a sibling file appeared/disappeared
@@ -158,17 +159,13 @@ async fn download(
         .iter()
         .find(|p| p.file_name().and_then(|s| s.to_str()) == Some(&filename))
     else {
-        return Err((StatusCode::NOT_FOUND, "file not found in book".into()));
+        return Err(AppError::not_found("file not found in book"));
     };
 
-    let file = tokio::fs::File::open(source).await.map_err(|err| {
+    let file = tokio::fs::File::open(source).await.inspect_err(|err| {
         error!(path = %source.display(), ?err, "failed to open audio file");
-        (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
     })?;
-    let metadata = file
-        .metadata()
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let metadata = file.metadata().await?;
 
     let filename = source
         .file_name()
@@ -178,18 +175,14 @@ async fn download(
 
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
-    Response::builder()
+    Ok(Response::builder()
         .header(header::CONTENT_TYPE, mime)
         .header(header::CONTENT_LENGTH, metadata.len())
         .header(
             header::CONTENT_DISPOSITION,
             format!(r#"attachment; filename="{}""#, filename.replace('"', "")),
         )
-        .body(body)
-        .map_err(|err| {
-            error!(?err, "failed to build download response");
-            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
-        })
+        .body(body)?)
 }
 
 fn audio_mime_for(path: &StdPath) -> &'static str {
