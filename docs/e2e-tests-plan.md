@@ -76,13 +76,24 @@ verify the browser-side outcome:
 1. **Library filter swap.** Load `/`, type into the search input,
    confirm the `<tbody>` (or list container) swaps to the filtered set
    and that the URL bar reflects `?q=…`.
-2. **Detail page files fragment.** Load `/books/{asin}`, confirm the
-   files list arrives via the deferred `hx-get="/books/{asin}/files"`
-   into `#files-list`.
+2. **Detail page Refresh button.** Load `/books/{asin}`. The files
+   list is server-rendered inline as `#files-list` (the template
+   `{% include "files_fragment.html" %}`s on first paint, so there
+   is no deferred load to assert), so the browser-level value-add is
+   the manual Refresh button: click it and assert that the
+   `outerHTML` swap re-renders `#files-list` with the current
+   on-disk file set — e.g. drop a new audio file into the books dir
+   mid-test and confirm it appears after the click.
 3. **Admin requeue swap.** Log in with the test password, click the
-   requeue button on a detail page, confirm the button state changes
-   (e.g. is disabled / shows confirmation) and the detail row reflects
-   `BookStatus = 0`.
+   requeue button on a detail page, confirm `#requeue-status`
+   receives the success fragment (the template returns just a
+   success/error message; `hx-swap="innerHTML"` on `#requeue-status`
+   is the only thing that updates). Then verify the DB row shows
+   `BookStatus = 0`. The current HTMX flow does not disable the
+   button or re-render the detail row in place — if we want either,
+   that's an app change (e.g. `hx-swap-oob` on a `data-book-status`
+   span, or `hx-disable-this` on the form) and the test should be
+   widened in the same slice.
 
 Each test boots the same `routes::router(state)` we already use in
 handler tests, against a fixture DB and a tempdir books root, on a
@@ -102,19 +113,36 @@ random port. The test then drives the browser at
 
 ## File layout
 
+Cargo discovers integration tests by file, not by directory. A bare
+`tests/e2e/` folder will not produce a `cargo test --test e2e`
+target on its own — Cargo needs *either* a single `tests/e2e.rs`
+file, a `tests/e2e/main.rs` entry point, or an explicit `[[test]]`
+block in `Cargo.toml` that points at one. The recipe in the next
+section assumes `--test e2e`, so we need the entry point.
+
+Recommended layout (single binary, sub-files as modules):
+
 ```
 tests/
   e2e/
+    main.rs          declares `mod common; mod library; mod detail;
+                     mod admin;` so all scenarios link into one
+                     `e2e` test binary
     common.rs        boots router on random port, opens fantoccini
                      client, returns (client, base_url, teardown)
     library.rs       library filter swap test
-    detail.rs        files fragment swap test
+    detail.rs        Refresh-button swap test
     admin.rs         admin requeue swap test
 ```
 
-`tests/e2e/common.rs` is shared via a `mod common;` declaration in each
-test file — Rust's standard pattern for shared integration-test
-helpers.
+Alternative: keep each scenario as its own `tests/e2e_<name>.rs`
+integration target and change the recipe to run them by glob
+(`cargo test --tests`), accepting that each binary boots its own
+runtime and copy of the shared fixtures.
+
+The `main.rs` form is preferred because it shares one tokio runtime
+and one geckodriver session across the scenarios, which is what we
+want for boot-cost reasons.
 
 ## Open questions
 
