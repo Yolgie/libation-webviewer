@@ -350,13 +350,13 @@ has a defined fallback; none escalates to a 5xx on read paths.
 | DB row present, no folder/file on disk               | Book renders in the list with a "missing files" badge; cover falls through to placeholder; download → 404 |
 | Folder present on disk, no matching DB row           | Surfaced in an "orphaned files" view (linkable but off the main list); ASIN parsed from the folder name.  |
 | Folder name has no `[ASIN]` token                    | Folder skipped; INFO log entry with the path so the operator can rename it.                               |
-| File present, no embedded cover                      | Placeholder served; `.miss` sentinel written so we don't re-parse on every request.                       |
-| mp4ameta / id3 errors mid-parse                      | Placeholder cover; WARN log; `.miss` sentinel written; book otherwise functional.                         |
+| File present, no embedded cover                      | Placeholder served; WARN log. No `.miss` sentinel (deferred — re-parses on next request).                  |
+| mp4ameta / id3 errors mid-parse                      | Placeholder cover; WARN log; book otherwise functional. (No `.miss` sentinel — see cover-cache notes.)     |
 | `metadata.json` missing                              | Detail page renders DB-derived fields only; no review/summary section.                                    |
 | `metadata.json` present but unparseable              | Same as missing; WARN log with the line/column.                                                           |
 | Multiple audio files in one folder (split chapters)  | First (alpha-sorted) is the cover source; all files exposed under `/books/<asin>/files`.                  |
 | Mixed format inside one folder (.m4b + .mp3)         | First (alpha-sorted) drives format detection; all files still downloadable.                               |
-| Disk cache write fails (out of space, ro filesystem) | Pipeline still returns freshly decoded bytes; `/healthz` flips to a warning state with the cause.         |
+| Disk cache write fails (out of space, ro filesystem) | Pipeline still returns the freshly decoded bytes; cache write failure logged at WARN. (`/healthz` only verifies DB reachability; cache state is not surfaced there.) |
 | Unknown enum value (`BookStatus`/`Role`/etc.)        | Rendered as `Unknown(N)`; WARN log; book otherwise functional.                                            |
 | `__EFMigrationsHistory` head unknown                 | Admin write path disabled with a banner; reads continue.                                                  |
 
@@ -460,8 +460,9 @@ depend on network or absolute paths.
   ID3v2 `APIC` frame. Same `just fixtures-mp3` script. MP3 is a
   first-class format from v1.
 - **`tests/fixtures/no_cover.m4b`** — same audio as `tiny.m4b` but with
-  the `covr` atom stripped. Drives the "no embedded cover → placeholder
-  + `.miss` sentinel" path.
+  the `covr` atom stripped. Drives the "no embedded cover → placeholder"
+  path. (No `.miss` sentinel is written; the deferred-features note in
+  the cover-cache section explains why.)
 - **`tests/fixtures/no_cover.mp3`** — MP3 with no `APIC` frame; same
   fallback path for the id3 dispatch.
 - **`tests/fixtures/corrupt.m4b`** — truncated MP4 box header. Verifies
@@ -490,7 +491,7 @@ depend on network or absolute paths.
 | Format dispatch        | `.m4b`/`.m4a`/`.mp4` → mp4ameta; `.mp3` → id3; correct route taken. |
 | Graceful degradation   | One test per row of the degradation matrix; assert response is 2xx and the documented fallback (badge, placeholder, hint) is present. |
 | Thumbnail resize       | Deterministic resize; sha256 matches expected per-platform vector.  |
-| Cache hit / miss / staleness | mtime+size change invalidates and rewrites; `.miss` honored.  |
+| Cache hit / miss / staleness | mtime+size change invalidates the keyed cache file and a re-extract rewrites it. (No `.miss` sentinel in v1 — see the cover-cache notes.) |
 | Auth gate              | Correct password → token in map + cookie set; wrong password → 401; expired token → 401; constant-time compare verified via timing harness. |
 | HTTP read handlers     | `oneshot` axum requests for every GET; status, body, headers.       |
 | HTTP write handlers    | With/without admin session; success path; verify only `BookStatus` row is touched. |

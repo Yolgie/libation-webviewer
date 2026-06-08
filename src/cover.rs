@@ -15,6 +15,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use image::ImageFormat;
 use sha2::{Digest, Sha256};
 use tokio::fs;
+use tracing::warn;
 
 #[derive(Debug, Clone, Copy)]
 pub enum CoverFormat {
@@ -114,6 +115,12 @@ pub fn src_hash(path: &Path) -> std::io::Result<String> {
 }
 
 /// Return cached or freshly-built cover bytes plus their content-type.
+///
+/// Cache write failures (RO filesystem, out-of-space, etc.) are
+/// degraded gracefully: the freshly-decoded bytes are returned
+/// anyway, with a WARN log carrying the cause. Only an actual
+/// extraction/decode failure surfaces as `Err`. This matches the
+/// PLAN.md "graceful degradation" matrix row.
 pub async fn get_or_build(
     cache_dir: &Path,
     asin: &str,
@@ -122,26 +129,46 @@ pub async fn get_or_build(
 ) -> Result<(Vec<u8>, &'static str), CoverError> {
     let hash = src_hash(source)?;
     let dir = cache_dir.join("covers").join(asin);
-    fs::create_dir_all(&dir).await?;
+    // Cache-dir creation is best-effort. If it fails we skip the
+    // lookup and recompute every request — undesirable but not
+    // user-visible beyond extra latency.
+    let cache_writable = match fs::create_dir_all(&dir).await {
+        Ok(()) => true,
+        Err(err) => {
+            warn!(
+                asin = %asin,
+                path = %dir.display(),
+                ?err,
+                "cover cache dir unwritable; will recompute per request"
+            );
+            false
+        }
+    };
 
     if want_thumb {
         let cached = dir.join(format!("thumb-{}.webp", hash));
-        if let Ok(bytes) = fs::read(&cached).await {
-            return Ok((bytes, "image/webp"));
+        if cache_writable {
+            if let Ok(bytes) = fs::read(&cached).await {
+                return Ok((bytes, "image/webp"));
+            }
         }
-        let (orig_bytes, _) = build_orig(&dir, &hash, source).await?;
+        let (orig_bytes, _) = build_orig(&dir, &hash, source, cache_writable).await?;
         let thumb = resize_to_webp(&orig_bytes, 200)?;
-        fs::write(&cached, &thumb).await?;
+        if cache_writable {
+            try_cache_write(&cached, &thumb).await;
+        }
         return Ok((thumb, "image/webp"));
     }
 
-    for fmt in [CoverFormat::Jpeg, CoverFormat::Png] {
-        let cached = dir.join(format!("orig-{}.{}", hash, fmt.ext()));
-        if let Ok(bytes) = fs::read(&cached).await {
-            return Ok((bytes, fmt.mime()));
+    if cache_writable {
+        for fmt in [CoverFormat::Jpeg, CoverFormat::Png] {
+            let cached = dir.join(format!("orig-{}.{}", hash, fmt.ext()));
+            if let Ok(bytes) = fs::read(&cached).await {
+                return Ok((bytes, fmt.mime()));
+            }
         }
     }
-    let (bytes, fmt) = build_orig(&dir, &hash, source).await?;
+    let (bytes, fmt) = build_orig(&dir, &hash, source, cache_writable).await?;
     Ok((bytes, fmt.mime()))
 }
 
@@ -149,12 +176,24 @@ async fn build_orig(
     dir: &Path,
     hash: &str,
     source: &Path,
+    cache_writable: bool,
 ) -> Result<(Vec<u8>, CoverFormat), CoverError> {
     let source_owned: PathBuf = source.to_path_buf();
     let (bytes, fmt) = tokio::task::spawn_blocking(move || extract(&source_owned))
         .await
         .map_err(|e| CoverError::Parse(format!("spawn_blocking: {}", e)))??;
-    let cached = dir.join(format!("orig-{}.{}", hash, fmt.ext()));
-    fs::write(&cached, &bytes).await?;
+    if cache_writable {
+        let cached = dir.join(format!("orig-{}.{}", hash, fmt.ext()));
+        try_cache_write(&cached, &bytes).await;
+    }
     Ok((bytes, fmt))
+}
+
+/// Cache write that swallows IO errors. Failure here means the
+/// next request will re-extract; the *current* request still gets
+/// the bytes that were just produced.
+async fn try_cache_write(path: &Path, bytes: &[u8]) {
+    if let Err(err) = fs::write(path, bytes).await {
+        warn!(path = %path.display(), ?err, "cover cache write failed; bytes served fresh");
+    }
 }
