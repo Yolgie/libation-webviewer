@@ -1,8 +1,15 @@
 //! rusqlite queries against Libation's SQLite DB.
 //!
-//! Opens the DB read-only with a busy timeout so we never wedge
-//! Libation's own writer. The schema-drift guard, write path, and
-//! per-book detail query land in later slices.
+//! Read paths open the DB read-only (`mode=ro`) with a 5s busy timeout
+//! so the viewer never wedges Libation's own writer. The single write
+//! path (the admin requeue) opens a separate RW handle, runs one
+//! `UPDATE`, and drops the handle. A schema-drift guard compares the
+//! latest `__EFMigrationsHistory` head against `KNOWN_GOOD_MIGRATIONS`
+//! and fails admin writes closed when the head is unknown — flipped on
+//! by `ALLOW_UNKNOWN_SCHEMA=1`. The list query (`LIST_BOOKS_SQL`)
+//! assembles the library view in one pass; per-book detail
+//! (`get_book_by_asin`) loads contributors, series, and supplements
+//! around the core row.
 
 use std::path::Path;
 use std::time::Duration;
@@ -125,6 +132,14 @@ impl Library {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         conn.busy_timeout(Duration::from_secs(5))?;
         Ok(Self { conn })
+    }
+
+    /// Issue the cheapest possible round-trip to confirm the DB is
+    /// readable. Used by `/healthz`.
+    pub fn ping(&self) -> rusqlite::Result<()> {
+        self.conn
+            .query_row("SELECT 1", [], |r| r.get::<_, i64>(0))
+            .map(|_| ())
     }
 
     /// Look up an ASIN's BookId without loading the full BookDetail.
