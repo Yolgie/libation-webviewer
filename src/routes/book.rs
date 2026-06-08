@@ -180,9 +180,52 @@ async fn download(
         .header(header::CONTENT_LENGTH, metadata.len())
         .header(
             header::CONTENT_DISPOSITION,
-            format!(r#"attachment; filename="{}""#, filename.replace('"', "")),
+            attachment_disposition(filename),
         )
         .body(body)?)
+}
+
+/// Build a Content-Disposition value safe for any filesystem
+/// filename, including non-ASCII and chars rejected by the HTTP
+/// header grammar.
+///
+/// Pure-printable-ASCII filenames get the simple `filename="..."`
+/// form. Everything else falls back to RFC 5987's `filename*=UTF-8''…`
+/// extension paired with an ASCII-mangled `filename=` for clients
+/// that don't understand the `*=` form. The mangled fallback only
+/// drops chars the header grammar rejects — it never panics or
+/// returns a value that `HeaderValue::from_str` would refuse.
+fn attachment_disposition(filename: &str) -> String {
+    let ascii_safe = |c: char| matches!(c, ' '..='~') && c != '"' && c != '\\';
+
+    if filename.chars().all(ascii_safe) {
+        return format!(r#"attachment; filename="{filename}""#);
+    }
+
+    let ascii: String = filename
+        .chars()
+        .map(|c| if ascii_safe(c) { c } else { '_' })
+        .collect();
+    let encoded = rfc5987_encode(filename);
+    format!(r#"attachment; filename="{ascii}"; filename*=UTF-8''{encoded}"#)
+}
+
+/// Percent-encode under RFC 5987's `attr-char` rules, conservatively:
+/// pass through unreserved (`ALPHA / DIGIT / - / _ / . / ~`) and
+/// percent-encode everything else. Stricter than the spec allows, but
+/// always safe.
+fn rfc5987_encode(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(*b as char);
+        } else {
+            // Infallible: writing to a String can't fail.
+            let _ = write!(out, "%{b:02X}");
+        }
+    }
+    out
 }
 
 fn audio_mime_for(path: &StdPath) -> &'static str {
@@ -246,4 +289,58 @@ struct NotFoundTemplate<'a> {
 struct FilesFragmentTemplate<'a> {
     asin: &'a str,
     files: &'a [String],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{attachment_disposition, rfc5987_encode};
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn attachment_disposition_passes_plain_ascii_unchanged() {
+        let h = attachment_disposition("tiny.m4b");
+        assert_eq!(h, r#"attachment; filename="tiny.m4b""#);
+        // Round-trips through HeaderValue.
+        assert!(HeaderValue::from_str(&h).is_ok());
+    }
+
+    #[test]
+    fn attachment_disposition_emits_rfc5987_for_non_ascii() {
+        let h = attachment_disposition("Über Buch.m4b");
+        // ASCII fallback replaces non-printable / non-ASCII with _.
+        assert!(h.contains(r#"filename="_ber Buch.m4b""#));
+        // RFC 5987 form preserves the original via percent-encoding.
+        assert!(h.contains("filename*=UTF-8''"));
+        assert!(h.contains("%C3%9Cber%20Buch.m4b"));
+        assert!(HeaderValue::from_str(&h).is_ok());
+    }
+
+    #[test]
+    fn attachment_disposition_strips_quotes_and_backslashes_from_ascii_fallback() {
+        let h = attachment_disposition(r#"a"b\c.m4b"#);
+        assert!(h.contains(r#"filename="a_b_c.m4b""#));
+        assert!(h.contains("filename*=UTF-8''"));
+        assert!(HeaderValue::from_str(&h).is_ok());
+    }
+
+    #[test]
+    fn attachment_disposition_handles_control_chars_without_panicking() {
+        let h = attachment_disposition("foo\nbar\tbaz.m4b");
+        assert!(h.contains("filename*=UTF-8''"));
+        // ASCII fallback drops the controls.
+        assert!(h.contains(r#"filename="foo_bar_baz.m4b""#));
+        assert!(HeaderValue::from_str(&h).is_ok());
+    }
+
+    #[test]
+    fn rfc5987_encode_passes_unreserved_chars() {
+        assert_eq!(rfc5987_encode("abc-XYZ_.~"), "abc-XYZ_.~");
+    }
+
+    #[test]
+    fn rfc5987_encode_percent_encodes_everything_else() {
+        // Space -> %20, quote -> %22, multibyte UTF-8 byte-by-byte.
+        assert_eq!(rfc5987_encode("a b\""), "a%20b%22");
+        assert_eq!(rfc5987_encode("Ü"), "%C3%9C");
+    }
 }

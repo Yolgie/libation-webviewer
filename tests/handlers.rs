@@ -200,6 +200,31 @@ async fn download_rejects_path_traversal_attempts() {
 }
 
 #[tokio::test]
+async fn download_serves_files_with_non_ascii_names() {
+    // Regression for the original Content-Disposition path: it built
+    // the header with the raw filesystem name and only stripped quotes,
+    // so a perfectly-valid m4b like "Über.m4b" would 500 because the
+    // resulting header value held bytes HeaderValue::from_str rejects.
+    let tmp = tempfile::tempdir().unwrap();
+    let state = build_state(tmp.path());
+    let asin = "UNICODE001";
+    let folder = state.books_dir.join(format!("Unicode [{}]", asin));
+    fs::create_dir_all(&folder).unwrap();
+    fs::copy(fixture("tiny.m4b"), folder.join("Über.m4b")).unwrap();
+
+    let resp = request(state, &format!("/books/{}/download/%C3%9Cber.m4b", asin)).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(cd.contains(r#"filename="_ber.m4b""#), "got: {cd}");
+    assert!(cd.contains("filename*=UTF-8''%C3%9Cber.m4b"), "got: {cd}");
+}
+
+#[tokio::test]
 async fn download_link_is_stable_when_files_are_reordered() {
     // Regression for the index-based URL trap: with /download/{n}, a
     // stale page that linked index=0 -> "b.m4b" would silently serve
