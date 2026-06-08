@@ -73,9 +73,11 @@ pub fn apply(mut books: Vec<BookView>, q: &LibraryQuery) -> Vec<BookView> {
         _ => {} // "all" or unset
     }
 
-    // Free-text search (case-insensitive substring against title /
-    // subtitle / authors / narrators).
-    let needle = q.q.trim().to_lowercase();
+    // Free-text search (ASCII case-insensitive substring against
+    // title / subtitle / authors / narrators). Accented characters
+    // are matched literally on both sides — fine for English-language
+    // metadata, which is the bulk of Libation catalogues.
+    let needle = q.q.trim().to_ascii_lowercase();
     if !needle.is_empty() {
         books.retain(|b| matches_text(b, &needle));
     }
@@ -94,24 +96,43 @@ pub fn apply(mut books: Vec<BookView>, q: &LibraryQuery) -> Vec<BookView> {
 }
 
 fn matches_text(b: &BookView, needle: &str) -> bool {
-    if b.title.to_lowercase().contains(needle) {
+    if contains_ignore_ascii_case(&b.title, needle) {
         return true;
     }
     if let Some(sub) = &b.subtitle {
-        if sub.to_lowercase().contains(needle) {
+        if contains_ignore_ascii_case(sub, needle) {
             return true;
         }
     }
-    if b.authors.iter().any(|s| s.to_lowercase().contains(needle)) {
+    if b.authors
+        .iter()
+        .any(|s| contains_ignore_ascii_case(s, needle))
+    {
         return true;
     }
     if b.narrators
         .iter()
-        .any(|s| s.to_lowercase().contains(needle))
+        .any(|s| contains_ignore_ascii_case(s, needle))
     {
         return true;
     }
     false
+}
+
+/// Substring contains, ASCII-case-insensitive, zero-alloc. `needle`
+/// is assumed lowercased by the caller; we ASCII-fold each window
+/// of `haystack` in place via `eq_ignore_ascii_case`. Worst case is
+/// O(haystack * needle), which is fine for title-length strings.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    if n.is_empty() {
+        return true;
+    }
+    if h.len() < n.len() {
+        return false;
+    }
+    h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
 }
 
 #[cfg(test)]
@@ -252,6 +273,29 @@ mod tests {
         assert!(s.contains("q=andy%20weir"));
         assert!(s.contains("sort=length"));
         assert!(s.contains("status=downloaded"));
+    }
+
+    #[test]
+    fn contains_ignore_ascii_case_matches_and_misses() {
+        // Hit: mixed-case match anywhere in the haystack.
+        assert!(super::contains_ignore_ascii_case(
+            "Project Hail Mary",
+            "hail"
+        ));
+        assert!(super::contains_ignore_ascii_case(
+            "Project Hail Mary",
+            "MARY"
+        ));
+        assert!(super::contains_ignore_ascii_case("a", "a"));
+        // Miss: shorter haystack, unrelated text.
+        assert!(!super::contains_ignore_ascii_case(
+            "Project",
+            "Project Hail"
+        ));
+        assert!(!super::contains_ignore_ascii_case("foo", "bar"));
+        // Empty needle is trivially contained (caller already guards
+        // against this; verify the helper is consistent).
+        assert!(super::contains_ignore_ascii_case("anything", ""));
     }
 
     #[test]
