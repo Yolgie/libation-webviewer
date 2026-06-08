@@ -279,10 +279,16 @@ Auth gate (deliberately simple — low-sensitivity, easy setup):
 - `ADMIN_PASSWORD` env var holds the password in plain text. The
   operator drops it into their `.env`; no hashing step.
 - `/admin/login` constant-time-compares the submitted password against
-  `ADMIN_PASSWORD`. On success, the app generates a random 256-bit
-  token, stores it in an in-memory `HashMap<Token, Expiry>` (24h TTL),
-  and sets it as a cookie. No HMAC, no `SESSION_SECRET` — the token is
-  only valid because the map holds it; restart clears all sessions.
+  `ADMIN_PASSWORD`. On success the app mints a signed cookie of the
+  form `<expiry_unix>.<hex(hmac_sha256(SESSION_SECRET, expiry_unix))>`
+  with a 24h TTL. Verification re-derives the HMAC under the same
+  secret and rejects on signature mismatch or past expiry — no
+  server-side state.
+- `SESSION_SECRET` env (64-char hex = 32 bytes) anchors the HMAC. If
+  unset, the app generates a key at startup and sessions drop on
+  restart; a WARN is logged so the operator knows what they're
+  signing up for. Setting `SESSION_SECRET` is the supported way to
+  keep sessions valid across restarts.
 - If `ADMIN_PASSWORD` is unset and `ENABLE_ADMIN=true`, every
   authenticated check returns *granted* — the "personal install on a
   VPN" mode. Startup logs a WARN so accidental deployments are obvious.
@@ -290,11 +296,28 @@ Auth gate (deliberately simple — low-sensitivity, easy setup):
   routes are absent from the router entirely (not just 403), and the
   UI never renders the toggle.
 
-Threat model: the viewer sits behind a trust boundary (VPN or LAN).
-The password is one click of friction — against a misclick or a
-wandering browser tab — not a hardened secret. If the threat model
-ever tightens, swap in argon2id + signed cookies behind the same
-`AuthBackend` trait.
+Cookies carry `HttpOnly; Secure; SameSite=Strict; Path=/`. The
+`Secure` flag assumes the deployment topology documented in README
+(Caddy + Let's Encrypt terminating TLS in front of the viewer
+container); serving the viewer over plain HTTP will silently drop
+the cookie.
+
+Threat model: the viewer sits behind a trust boundary (VPN or LAN)
+plus a TLS-terminating reverse proxy. The password is one click of
+friction — against a misclick or a wandering browser tab — not a
+hardened secret. Login rate-limiting is delegated to the reverse
+proxy (`caddy-ratelimit` or equivalent) by design, since the
+viewer's first-class deployment includes one.
+
+> **v1.1 amendment (auth):** the original design stored session
+> tokens in an in-memory `HashMap<token, expiry>` keyed by an opaque
+> cookie. That map grew unbounded under repeated logins and needed a
+> sweep task to bound it. v1.1 switches to HMAC-signed cookies —
+> stateless, no mutex on the hot path, no sweep needed. The trade-off
+> is a `SESSION_SECRET` env knob, which is optional (auto-generated
+> at startup when absent). See `docs/tracing-plan.md` for the
+> separately-tracked observability slice that was discovered during
+> the same audit but deferred.
 
 ## What lives in `/cache` (the only app-writable surface)
 

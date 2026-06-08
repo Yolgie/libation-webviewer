@@ -43,6 +43,9 @@ serde_json = "1"
 subtle = "2"                                       # constant-time password compare
 uuid = { version = "1", features = ["v4", "fast-rng"] }
 
+# HMAC for signed session cookies (pairs with sha2 below).
+hmac = "0.13"
+
 # Errors + logging
 thiserror = "2"
 tracing = "0.1"

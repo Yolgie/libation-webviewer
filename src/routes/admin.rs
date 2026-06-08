@@ -9,7 +9,7 @@ use axum::{
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use crate::auth::{self, extract_session_token};
+use crate::auth;
 use crate::db;
 use crate::state::AppState;
 
@@ -64,10 +64,10 @@ async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginForm>
     (StatusCode::SEE_OTHER, headers).into_response()
 }
 
-async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(token) = extract_session_token(&headers) {
-        state.auth.invalidate_token(&token);
-    }
+async fn logout() -> Response {
+    // Sessions are stateless (signed cookies), so logout is just
+    // clearing the cookie at the browser. Nothing to invalidate
+    // server-side.
     let mut h = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&auth::make_clear_cookie()) {
         h.insert(header::SET_COOKIE, v);

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use libation_webviewer::{
-    auth::AuthBackend,
+    auth::{self, AuthBackend},
     db::{self, SchemaStatus},
     routes,
     state::AppState,
@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("ENABLE_ADMIN unset; admin surface is not mounted");
     }
 
-    let auth = Arc::new(AuthBackend::new(admin_password));
+    let auth = Arc::new(build_auth(admin_password));
 
     info!(books_dir = %books_dir.display(), "books directory configured; per-book routes scan it live");
 
@@ -97,6 +97,38 @@ fn env_truthy(name: &str) -> bool {
             .as_str(),
         "1" | "true" | "yes" | "on"
     )
+}
+
+/// Build the AuthBackend, anchoring its HMAC key in `SESSION_SECRET`
+/// if the operator set it. An unset or malformed env falls back to a
+/// freshly-generated key — fine for first deploys and dev, but logs a
+/// WARN so the operator knows sessions won't survive restart.
+fn build_auth(password: Option<String>) -> AuthBackend {
+    match std::env::var("SESSION_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        Some(raw) => match auth::decode_secret(&raw) {
+            Some(secret) => {
+                info!("SESSION_SECRET loaded; admin sessions will survive restart");
+                AuthBackend::with_secret(password, secret)
+            }
+            None => {
+                warn!(
+                    "SESSION_SECRET is set but not a 64-char hex string (32 bytes); \
+                     generating an ephemeral key instead. Sessions will not survive restart."
+                );
+                AuthBackend::new(password)
+            }
+        },
+        None => {
+            warn!(
+                "SESSION_SECRET unset; using an ephemeral HMAC key. \
+                 Set SESSION_SECRET (64 hex chars) to keep sessions valid across restarts."
+            );
+            AuthBackend::new(password)
+        }
+    }
 }
 
 /// Decide whether the admin write path should be available, given the
