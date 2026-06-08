@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use askama::Template;
 use axum::{
     extract::{Query, State},
@@ -10,7 +8,7 @@ use axum::{
 };
 use tracing::error;
 
-use crate::db;
+use crate::db::{self, DbError, LibraryPool};
 use crate::query::{apply, LibraryQuery};
 use crate::state::AppState;
 use crate::view::{AdminContext, BookView};
@@ -27,7 +25,7 @@ async fn library_list(
     Query(q): Query<LibraryQuery>,
 ) -> Response {
     let admin = AdminContext::from_state(&state, &headers);
-    match load_filtered(&state.db_path, &q) {
+    match load_filtered(&state.db, &q).await {
         Ok(books) => render_template(LibraryTemplate {
             books: &books,
             q: &q,
@@ -43,7 +41,7 @@ async fn library_list(
 }
 
 async fn library_rows(State(state): State<AppState>, Query(q): Query<LibraryQuery>) -> Response {
-    match load_filtered(&state.db_path, &q) {
+    match load_filtered(&state.db, &q).await {
         Ok(books) => {
             let mut resp = render_template(LibraryRowsTemplate { books: &books });
             // Update the browser address bar so a refresh lands the user
@@ -60,8 +58,8 @@ async fn library_rows(State(state): State<AppState>, Query(q): Query<LibraryQuer
     }
 }
 
-fn load_filtered(path: &Path, q: &LibraryQuery) -> rusqlite::Result<Vec<BookView>> {
-    let books = db::Library::open_ro(path)?.list_books()?;
+async fn load_filtered(pool: &LibraryPool, q: &LibraryQuery) -> Result<Vec<BookView>, DbError> {
+    let books = pool.ro(db::list_books).await?;
     Ok(apply(books, q))
 }
 
