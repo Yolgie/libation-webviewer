@@ -174,7 +174,7 @@ async fn download(
 
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
-    Ok(Response::builder()
+    Response::builder()
         .header(header::CONTENT_TYPE, mime)
         .header(header::CONTENT_LENGTH, metadata.len())
         .header(
@@ -182,7 +182,10 @@ async fn download(
             format!(r#"attachment; filename="{}""#, filename.replace('"', "")),
         )
         .body(body)
-        .unwrap())
+        .map_err(|err| {
+            error!(?err, "failed to build download response");
+            (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+        })
 }
 
 fn audio_mime_for(path: &StdPath) -> &'static str {

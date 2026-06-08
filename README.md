@@ -6,10 +6,13 @@ Browse, sort, filter, download, and — admin-gated — re-queue books so Libati
 
 ## Status
 
-Early development. The repo currently holds the [design doc](./PLAN.md)
-plus a compiling scaffold. The HTTP surface is stubbed; the DB, cover
-pipeline, and admin write path are not yet wired up. Vertical-slice
-work tracked in issues.
+v1 feature-complete. The library list, per-book detail, cover
+pipeline, live books-folder scan, admin requeue, graceful degradation,
+and `/healthz` DB ping are all wired up and covered by integration
+tests. The [design doc](./PLAN.md) is the source of truth for the
+threat model and the open ops decisions. End-to-end HTMX browser tests
+are tracked separately in
+[`docs/e2e-tests-plan.md`](./docs/e2e-tests-plan.md).
 
 ## Quick start (Docker)
 
@@ -31,7 +34,7 @@ Open <http://localhost:8080>.
 Compose? See [`compose/`](./compose/).
 Author's specific Dockge + Caddy stack? See [`examples/dockge/`](./examples/dockge/).
 
-## Features (planned for v1)
+## Features
 
 - Read-only browse list with sort/filter, cover art, detail pages, download links
 - `.m4b` and `.mp3` first-class (embedded `covr` / `APIC` cover atoms)

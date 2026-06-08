@@ -80,12 +80,14 @@ pub fn apply(mut books: Vec<BookView>, q: &LibraryQuery) -> Vec<BookView> {
         books.retain(|b| matches_text(b, &needle));
     }
 
-    // Sort.
+    // Sort. The case-insensitive key sorts use `sort_by_cached_key` so
+    // each book's lowercased key is computed once per sort rather than
+    // once per comparison.
     match q.sort.as_str() {
-        "author" => books.sort_by_key(|b| b.authors.first().map(|s| s.to_lowercase())),
+        "author" => books.sort_by_cached_key(|b| b.authors.first().map(|s| s.to_lowercase())),
         "length" => books.sort_by_key(|b| std::cmp::Reverse(b.length_minutes)),
         "date_added" => books.sort_by(|a, b| b.date_added.cmp(&a.date_added)),
-        _ => books.sort_by_key(|b| b.title.to_lowercase()),
+        _ => books.sort_by_cached_key(|b| b.title.to_lowercase()),
     }
 
     books

@@ -199,13 +199,16 @@ Cache layout:
 ```
 /cache/covers/<asin>/orig-<srchash>.jpg     full extracted image
 /cache/covers/<asin>/thumb-<srchash>.webp   resized (200×200) for list view
-/cache/covers/<asin>/.miss                  empty sentinel for "no cover"
 ```
 
 Where `<srchash>` = first 16 hex chars of sha256("<mtime>:<size>") of the
-source audio file. Files persist across restarts; eviction is by capacity
-(see `CACHE_MAX_BYTES` env). On a stale hash, the new file gets written
-and the old one is removed in the same operation.
+source audio file. Files persist across restarts. The cache is
+unbounded in v1 — operator-managed: clearing `/cache` is safe and only
+costs the next cold-start extraction pass. A `.miss` sentinel for "no
+embedded cover" and capacity-based eviction (`CACHE_MAX_BYTES`) were
+considered and deferred: in the target deployment (single Libation
+library, single admin) extraction is cheap relative to the rest of a
+request and disk pressure has not been an issue.
 
 ## Routes
 
@@ -215,7 +218,7 @@ and the old one is removed in the same operation.
 | GET    | `/books/{asin}`               | Book detail (HTML)                                         |
 | GET    | `/books/{asin}/cover`         | Full-res cover image                                       |
 | GET    | `/books/{asin}/thumb`         | Resized thumbnail                                          |
-| GET    | `/books/{asin}/download/{n}`  | Stream the n-th audio file (Content-Disposition: attachment) |
+| GET    | `/books/{asin}/download/{filename}` | Stream an audio file by basename, resolved against a live scan (Content-Disposition: attachment) |
 | GET    | `/books/{asin}/files`         | List of files for the book (HTML fragment, used by detail page) |
 | GET    | `/partial/library`            | HTMX partial: just the library `<table>`/`<ul>` for filter swaps |
 | POST   | `/admin/login`                | Verifies password, sets a session cookie                   |
@@ -297,18 +300,20 @@ ever tightens, swap in argon2id + signed cookies behind the same
 
 ```
 /cache/covers/...        cover + thumbnail bytes (described above)
-/cache/scan.log          rotating debug log of cover extraction outcomes
-                          (helps diagnose books without recoverable covers)
 ```
 
-Book metadata is held in memory: at startup the app runs the
-assembly query once and keeps the result in an
-`Arc<RwLock<Vec<BookView>>>`. The library is small (the sample DB
-holds 64 books; even a 10× larger library is well under a megabyte),
-so an in-memory snapshot is fine. The snapshot reloads if the
-Libation DB's mtime moves between requests. The on-disk cache is
-fully disposable; deleting it costs only the next cold-start
-image-extraction pass.
+Cover-extraction outcomes are logged via `tracing` to stdout (WARN on
+failure, INFO on cold-build), not to a file in `/cache`. Operators
+plug that into whatever log pipeline they already run.
+
+Book metadata is not cached in memory. Each request opens a fresh
+read-only handle to Libation's DB and runs the assembly query; the
+books folder under `LIBATION_BOOKS` is scanned live per request. The
+sample DB has 64 books and the assembly query is a single round-trip,
+so the per-request cost is negligible; in exchange new downloads from
+Libation appear immediately without needing a viewer restart or any
+mtime-based invalidation. The on-disk cover cache is fully disposable;
+deleting it costs only the next cold-start image-extraction pass.
 
 ## Graceful degradation (must always render)
 
@@ -582,15 +587,15 @@ COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 COPY templates/ templates/
 COPY assets/ assets/
-RUN cargo build --release --target x86_64-unknown-linux-musl --bin webviewer
+RUN cargo build --release --target x86_64-unknown-linux-musl --bin libation-webviewer
 
 # ---- runtime ----
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/webviewer /webviewer
+COPY --from=builder /src/target/x86_64-unknown-linux-musl/release/libation-webviewer /libation-webviewer
 ENV CACHE_DIR=/cache
 USER nonroot
 EXPOSE 8080
-ENTRYPOINT ["/webviewer"]
+ENTRYPOINT ["/libation-webviewer"]
 ```
 
 Final image ~12–20 MB. `nonroot` is uid 65532 — the host paths must be
