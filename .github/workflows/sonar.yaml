@@ -1,0 +1,36 @@
+name: sonar
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: sonar-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sonarqube:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    # SONAR_TOKEN isn't exposed to PRs from forks, so the scan can't
+    # run there. Skip cleanly instead of failing — first-party pushes
+    # and forks reopened/synced by maintainers still cover the project.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      # Actions are pinned by commit SHA per the project's policy.
+      # The trailing comment is the major-version tag Dependabot tracks
+      # against; Dependabot will keep the SHA in sync with that tag.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          # Shallow clones disable blame-based "new code" detection.
+          fetch-depth: 0
+
+      - uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995  # v8.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

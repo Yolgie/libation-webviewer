@@ -8,6 +8,18 @@ Until `0.1.0` is tagged, everything lives under `Unreleased`.
 
 ## [Unreleased]
 
+### Added (SonarQube Cloud scanning)
+
+- New `.github/workflows/sonar.yaml` runs the
+  `SonarSource/sonarqube-scan-action` on every push to `main` and on
+  PRs from the same repo. PRs from forks are skipped via an `if:`
+  guard because `SONAR_TOKEN` is not exposed to fork workflows.
+  Action pinned by SHA per project policy.
+- New `sonar-project.properties` at the repo root:
+  `projectKey=Yolgie_libation-webviewer`, `organization=yolgie`,
+  `sources=src`, `tests=tests`, plus exclusions for `target/`,
+  `tests/fixtures/`, and `assets/`.
+
 ### Changed (action SHA pinning)
 
 - Every GitHub Actions reference in the workflows is now pinned by
