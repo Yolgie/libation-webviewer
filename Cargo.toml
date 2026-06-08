@@ -25,7 +25,11 @@ rust-embed = { version = "8", features = ["mime-guess"] }
 mime_guess = "2"
 
 # Persistence
-rusqlite = { version = "0.40", features = ["bundled"] }
+# rusqlite pinned to 0.39 to match r2d2_sqlite 0.34's hard rusqlite dep.
+# Bump together when r2d2_sqlite ships a release tracking rusqlite 0.40.
+rusqlite = { version = "0.39", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.34"
 
 # Cover extraction
 mp4ameta = "0.13"

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use libation_webviewer::auth::AuthBackend;
+use libation_webviewer::db::LibraryPool;
 use libation_webviewer::routes;
 use libation_webviewer::state::AppState;
 use tower::ServiceExt;
@@ -33,7 +34,7 @@ fn build_state(root: &Path) -> AppState {
     let cache_dir = root.join("cache");
     fs::create_dir_all(&cache_dir).unwrap();
     AppState {
-        db_path: fixture("sample.db"),
+        db: LibraryPool::open(fixture("sample.db")).expect("open test DB pool"),
         db_path_rw: None,
         books_dir,
         cache_dir,

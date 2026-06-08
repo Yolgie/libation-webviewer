@@ -2,10 +2,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::auth::AuthBackend;
+use crate::db::LibraryPool;
 
 #[derive(Clone, Debug)]
 pub struct AppState {
-    pub db_path: PathBuf,
+    /// Pool of read-only connections to Libation's SQLite DB. All read
+    /// paths grab a pooled connection and run their query inside
+    /// `spawn_blocking` so rusqlite's synchronous calls never stall
+    /// async runtime threads.
+    pub db: LibraryPool,
     /// Optional writable DB handle path (typically the same Libation DB
     /// mounted a second time without `:ro`). When `None`, all admin
     /// write attempts return `503 Service Unavailable` regardless of

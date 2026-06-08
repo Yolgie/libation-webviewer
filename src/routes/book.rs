@@ -76,7 +76,7 @@ async fn detail(
     Path(asin): Path<String>,
 ) -> Response {
     let admin = AdminContext::from_state(&state, &headers);
-    let detail = match load_detail(&state, &asin) {
+    let detail = match load_detail(&state, &asin).await {
         Ok(Some(d)) => d,
         Ok(None) => return not_found(&asin),
         Err(err) => {
@@ -114,8 +114,12 @@ async fn detail(
     })
 }
 
-fn load_detail(state: &AppState, asin: &str) -> rusqlite::Result<Option<BookDetail>> {
-    db::Library::open_ro(&state.db_path)?.get_book_by_asin(asin)
+async fn load_detail(state: &AppState, asin: &str) -> Result<Option<BookDetail>, db::DbError> {
+    let asin = asin.to_string();
+    state
+        .db
+        .ro(move |conn| db::get_book_by_asin(conn, &asin))
+        .await
 }
 
 async fn files_fragment(State(state): State<AppState>, Path(asin): Path<String>) -> Response {

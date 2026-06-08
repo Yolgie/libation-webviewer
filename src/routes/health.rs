@@ -15,7 +15,7 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn healthz(State(state): State<AppState>) -> Response {
-    match db::Library::open_ro(&state.db_path).and_then(|lib| lib.ping()) {
+    match state.db.ro(db::ping).await {
         Ok(()) => (StatusCode::OK, "ok").into_response(),
         Err(err) => {
             error!(?err, "healthz: DB unreachable");

@@ -71,8 +71,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!(books_dir = %books_dir.display(), "books directory configured; per-book routes scan it live");
 
+    let db = db::LibraryPool::open(&db_path).map_err(|e| {
+        format!(
+            "failed to open read-only DB pool at {}: {e}",
+            db_path.display()
+        )
+    })?;
+
     let state = AppState {
-        db_path,
+        db,
         db_path_rw,
         books_dir,
         cache_dir,
