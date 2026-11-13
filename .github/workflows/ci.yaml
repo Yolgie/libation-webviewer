@@ -31,7 +31,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
 
-      - uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419  # v2
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39  # v2
         with:
           tool: cargo-nextest,cargo-llvm-cov,cargo-audit,cargo-deny
 
@@ -43,7 +43,7 @@ jobs:
 
       - run: cargo llvm-cov nextest --lcov --output-path lcov.info
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: lcov
           path: lcov.info
